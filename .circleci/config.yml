@@ -11,13 +11,13 @@ workflows:
               only:
                 - master
     jobs:
-      - "upstream-dev"
+      # - "upstream-dev"
       - "python-3.6"
       - "python-3.7"
       - "python-3.8"
   default:
     jobs:
-      - "upstream-dev"
+      # - "upstream-dev"
       - "python-3.6"
       - "python-3.7"
       - "python-3.8"
