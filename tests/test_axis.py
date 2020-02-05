@@ -3,7 +3,7 @@ import numpy.matlib as npm
 import pytest
 import xarray as xr
 
-from xtime import Axis
+from xtimeutil import Axis
 
 
 def create_dataset(
