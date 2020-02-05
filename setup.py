@@ -7,7 +7,7 @@ from setuptools import find_packages, setup
 with open('requirements.txt') as f:
     install_requires = f.read().strip().split('\n')
 
-with open('README.md', 'r') as fh:
+with open('README.rst', 'r') as fh:
     long_description = fh.read()
 
 CLASSIFIERS = [
@@ -23,15 +23,14 @@ CLASSIFIERS = [
 ]
 
 setup(
-    name='xtime',
-    long_description_content_type='text/markdown',
+    name='xtimeutil',
     description='A Python package for managing time axis and different operations related to time with xarray',
     long_description=long_description,
     python_requires='>=3.6',
     maintainer='Anderson Banihirwe',
     maintainer_email='abanihi@ucar.edu',
     classifiers=CLASSIFIERS,
-    url='https://github.com/NCAR/xtime',
+    url='https://github.com/NCAR/xtimeutil',
     packages=find_packages(exclude=('tests',)),
     include_package_data=True,
     install_requires=install_requires,
