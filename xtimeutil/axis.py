@@ -115,11 +115,11 @@ def _is_time_decoded(x):
 
 
 def _datetime_object_type(x):
-    if xr.core.common.contains_cftime_datetimes(x):
-        return 'cftime'
-
-    elif xr.core.common.is_np_datetime_like(x.dtype):
-        return 'np_datetime'
+    if _is_time_decoded(x):
+        if xr.core.common.contains_cftime_datetimes(x):
+            return 'cftime'
+        else:
+            return 'np_datetime'
 
     else:
-        return 'unknown'
+        return 'numeric'

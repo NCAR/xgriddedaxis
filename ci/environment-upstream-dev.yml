@@ -12,6 +12,8 @@ dependencies:
   - pytest-xdist
   - xarray
   - cython
+  - scipy
+
   - pip:
       - git+https://github.com/pydata/xarray.git
       - git+https://github.com/Unidata/cftime.git

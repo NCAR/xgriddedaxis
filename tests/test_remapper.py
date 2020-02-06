@@ -1,4 +1,5 @@
 import pytest
+import scipy
 import xarray as xr
 
 from xtimeutil import Remapper
@@ -26,4 +27,6 @@ def test_init_axis(has_time_bounds, time_units, calendar, use_cftime, decode_tim
     )
     remapper = Remapper(ds, freq)
     res = xr.decode_cf(remapper._from_axis._ds).resample(time=freq)
-    assert res._full_index.size == remapper.time_bounds_out.shape[0]
+    assert res._full_index.size == remapper.decoded_time_bounds_out.shape[0]
+    assert isinstance(remapper.weights, scipy.sparse.csr.csr_matrix)
+    assert remapper.weights.shape == (res._full_index.size, ds.time.size)
