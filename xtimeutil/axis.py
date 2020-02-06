@@ -25,14 +25,14 @@ class Axis:
         self.metadata['time_coord_name'] = time_coord_name
         self.metadata.update(self._get_time_attrs())
         if self.metadata['is_time_decoded']:
-            self.metadata['time_object_type'] = _datetime_object_type(ds[time_coord_name].data)
+            self.metadata['input_time_object_type'] = _datetime_object_type(ds[time_coord_name])
             self._time = xr.coding.times.encode_cf_datetime(
                 self._ds[self.metadata['time_coord_name']],
                 units=self.metadata['units'],
                 calendar=self.metadata['calendar'],
             )[0]
         else:
-            self.metadata['time_object_type'] = 'numeric'
+            self.metadata['input_time_object_type'] = 'numeric'
             self._time = self._ds[self.metadata['time_coord_name']].copy()
 
         if self.metadata['time_bounds_varname']:
@@ -51,18 +51,20 @@ class Axis:
             self._time_bounds = np.vstack((self._time, self._time)).T
 
         self.decoded_times = xr.DataArray(
-            xr.coding.times.decode_cf_datetime(
+            dims=[self.metadata['time_coord_name']],
+            data=xr.coding.times.decode_cf_datetime(
                 self._time_bounds.mean(axis=1), self.metadata['units'], self.metadata['calendar']
             ),
-            dims=[self.metadata['time_coord_name']],
         )
 
         self.decoded_time_bounds = xr.DataArray(
-            xr.coding.times.decode_cf_datetime(
+            dims=[self.metadata['time_coord_name'], self.metadata['time_bounds_dim'] or 'd2'],
+            data=xr.coding.times.decode_cf_datetime(
                 self._time_bounds, self.metadata['units'], self.metadata['calendar']
             ),
-            dims=[self.metadata['time_coord_name'], self.metadata['time_bounds_dim'] or 'd2'],
         )
+
+        self.metadata['decoded_time_object_type'] = _datetime_object_type(self.decoded_times)
 
     def _get_time_attrs(self):
         attrs = getattr(self._ds[self.metadata['time_coord_name']], 'attrs')
@@ -113,8 +115,11 @@ def _is_time_decoded(x):
 
 
 def _datetime_object_type(x):
-    if xr.core.common._contains_cftime_datetimes(x):
+    if xr.core.common.contains_cftime_datetimes(x):
         return 'cftime'
 
-    else:
+    elif xr.core.common.is_np_datetime_like(x.dtype):
         return 'np_datetime'
+
+    else:
+        return 'unknown'
