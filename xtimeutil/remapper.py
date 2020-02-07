@@ -157,7 +157,6 @@ class Remapper:
     def _prepare_output_data(self, input_data, output_data, time_axis, trailing_shape):
 
         shape = (output_data.shape[0], *trailing_shape)
-        print(shape)
         data = np.moveaxis(output_data.reshape(shape), 0, time_axis)
 
         original_dims = input_data.dims
