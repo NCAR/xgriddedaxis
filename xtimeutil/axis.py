@@ -53,12 +53,16 @@ class Axis:
         self.decoded_times = xr.DataArray(
             dims=[self.metadata['time_coord_name']],
             data=xr.coding.times.decode_cf_datetime(
-                self._time_bounds.mean(axis=1), self.metadata['units'], self.metadata['calendar']
+                self._time_bounds.mean(axis=self.metadata['time_bounds_dim_axis_num']),
+                self.metadata['units'],
+                self.metadata['calendar'],
             ),
         )
 
+        dims = _get_time_bounds_dims(self.metadata)
+
         self.decoded_time_bounds = xr.DataArray(
-            dims=[self.metadata['time_coord_name'], self.metadata['time_bounds_dim'] or 'd2'],
+            dims=dims,
             data=xr.coding.times.decode_cf_datetime(
                 self._time_bounds, self.metadata['units'], self.metadata['calendar']
             ),
@@ -92,17 +96,32 @@ class Axis:
             time_bounds_varname = None
 
         if time_bounds_varname:
-            time_bounds_dim = self._ds[time_bounds_varname].dims[1]
+            dims = set(self._ds[time_bounds_varname].dims)
+            time_coord_name = set([self.metadata['time_coord_name']])
+            time_bounds_dim = (dims - time_coord_name).pop()
+            time_bounds_dim_axis_num = self._ds[time_bounds_varname].get_axis_num(time_bounds_dim)
 
         else:
-            time_bounds_dim = None
+            time_bounds_dim = 'd2'  # Default/Dummy value
+            time_bounds_dim_axis_num = 1  # Default value
 
         return {
             'units': units,
             'calendar': calendar,
             'time_bounds_varname': time_bounds_varname,
             'time_bounds_dim': time_bounds_dim,
+            'time_bounds_dim_axis_num': time_bounds_dim_axis_num,
         }
+
+
+def _get_time_bounds_dims(metadata):
+
+    if metadata['time_bounds_dim_axis_num'] == 1:
+        dims = [metadata['time_coord_name'], metadata['time_bounds_dim']]
+    else:
+        dims = [metadata['time_bounds_dim'], metadata['time_coord_name']]
+
+    return dims
 
 
 def _validate_time_coord(ds, time_coord_name):
