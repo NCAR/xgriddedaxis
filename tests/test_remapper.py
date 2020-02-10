@@ -52,7 +52,7 @@ parameters = combs1 + combs2
 )
 def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
-        time_units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
+        units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
 
     remapper = Remapper(ds, freq=freq, binding=binding)
@@ -65,7 +65,7 @@ def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, bin
 )
 def test_remapper_average(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
-        time_units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
+        units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
 
     remapper = Remapper(ds, freq=freq, binding=binding)

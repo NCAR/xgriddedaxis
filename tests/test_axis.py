@@ -26,7 +26,7 @@ parameters = combs1 + combs2
 )
 def test_init_axis(time_units, calendar, decode_times, use_cftime):
     ds = create_dataset(
-        time_units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
+        units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
     axis = Axis(ds)
     assert axis.metadata['is_time_decoded'] == decode_times
