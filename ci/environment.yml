@@ -12,5 +12,3 @@ dependencies:
   - pytest-xdist
   - xarray
   - scipy
-  - pip:
-      - pytest-circleci-parallelized
