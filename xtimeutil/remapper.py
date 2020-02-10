@@ -1,10 +1,10 @@
+import warnings
 from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy.sparse import csr_matrix
-from xarray.core import resample_cftime
 
 from .axis import Axis, _get_time_bounds_dims
 
@@ -52,6 +52,8 @@ class Remapper:
 
     def _generate_outgoing_time_bounds(self):
 
+        warning_message = f'Resample frequency is greater than extent of incoming time axis. Doubling time axis interval.'
+
         if xr.core.common.is_np_datetime_like(self.incoming_time_bounds.dtype):
             # Use to_offset() function to compute offset that allows us to generate
             # time range that includes the end of the incoming time bounds.
@@ -59,6 +61,18 @@ class Remapper:
             time_bounds = pd.date_range(
                 start=pd.to_datetime(self.ti), end=pd.to_datetime(self.tf) + offset, freq=self.freq
             )
+
+            if len(time_bounds) == 1:
+                # this should be rare
+                warnings.warn(warning_message)
+
+                offset = 2 * offset
+
+                time_bounds = pd.date_range(
+                    start=pd.to_datetime(self.ti),
+                    end=pd.to_datetime(self.tf) + offset,
+                    freq=self.freq,
+                )
 
         else:
             offset = xr.coding.cftime_offsets.to_offset(self.freq)
@@ -69,7 +83,19 @@ class Remapper:
                 calendar=self._from_axis.metadata['calendar'],
             )
 
-        assert time_bounds[-1] > self.tf
+            if len(time_bounds) == 1:
+                # this should be rare
+                warnings.warn(warning_message)
+                offset = 2 * offset
+                time_bounds = xr.cftime_range(
+                    start=self.ti,
+                    end=self.tf + offset,
+                    freq=self.freq,
+                    calendar=self._from_axis.metadata['calendar'],
+                )
+
+        msg = f'{self.tf} upper bound from the incoming time axis is not covered in the outgoing time axis which has {time_bounds[-1]} as the upper bound.'
+        assert time_bounds[-1] > self.tf, msg
         outgoing_time_bounds = np.vstack((time_bounds[:-1], time_bounds[1:])).T
         dims = _get_time_bounds_dims(self._from_axis.metadata)
 
@@ -199,19 +225,3 @@ class Remapper:
         output_data = np.multiply(self.weights * input_data, inverse_sum_effective_weights)
         output_data = self._prepare_output_data(da, output_data, time_axis, trailing_shape)
         return output_data
-
-
-def _get_index_and_items(index, grouper):
-    """
-    Copied from xarray: https://bit.ly/3896G6Q
-    """
-    s = pd.Series(np.arange(index.size), index)
-    if isinstance(grouper, resample_cftime.CFTimeGrouper):
-        first_items = grouper.first_items(index)
-    else:
-        first_items = s.groupby(grouper).first()
-        xr.core.groupby._apply_loffset(grouper, first_items)
-    full_index = first_items.index
-    if first_items.isnull().any():
-        first_items = first_items.dropna()
-    return full_index, first_items
