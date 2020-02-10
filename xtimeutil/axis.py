@@ -43,25 +43,21 @@ class Axis:
         self.metadata['is_time_decoded'] = _is_time_decoded(ds[time_coord_name])
         self.metadata['time_coord_name'] = time_coord_name
         self.metadata.update(self._get_time_attrs())
+        self.metadata['use_cftime'] = _use_cftime(ds[time_coord_name], self.metadata)
         if self.metadata['is_time_decoded']:
-            self.metadata['input_time_object_type'] = _datetime_object_type(ds[time_coord_name])
             self._time = xr.coding.times.encode_cf_datetime(
                 self._ds[self.metadata['time_coord_name']],
                 units=self.metadata['units'],
                 calendar=self.metadata['calendar'],
             )[0]
-        else:
-            self.metadata['input_time_object_type'] = 'numeric'
-            self._time = self._ds[self.metadata['time_coord_name']].copy()
 
-        if _is_time_decoded(self._ds[self.metadata['time_bounds_varname']]):
             self._time_bounds = xr.coding.times.encode_cf_datetime(
                 self._ds[self.metadata['time_bounds_varname']],
                 units=self.metadata['units'],
                 calendar=self.metadata['calendar'],
             )[0]
-
         else:
+            self._time = self._ds[self.metadata['time_coord_name']].copy()
             self._time_bounds = self._ds[self.metadata['time_bounds_varname']].copy()
 
         self.decoded_times = xr.DataArray(
@@ -72,6 +68,7 @@ class Axis:
                 ),
                 self.metadata['units'],
                 self.metadata['calendar'],
+                use_cftime=self.metadata['use_cftime'],
             ),
         )
 
@@ -80,11 +77,12 @@ class Axis:
         self.decoded_time_bounds = xr.DataArray(
             dims=dims,
             data=xr.coding.times.decode_cf_datetime(
-                self._time_bounds, self.metadata['units'], self.metadata['calendar']
+                self._time_bounds,
+                self.metadata['units'],
+                self.metadata['calendar'],
+                use_cftime=self.metadata['use_cftime'],
             ),
         )
-
-        self.metadata['decoded_time_object_type'] = _datetime_object_type(self.decoded_times)
 
     def _get_time_attrs(self):
         attrs = getattr(self._ds[self.metadata['time_coord_name']], 'attrs')
@@ -145,8 +143,19 @@ def _is_time_decoded(x):
     return xr.core.common._contains_datetime_like_objects(x)
 
 
-def _datetime_object_type(x):
+def _use_cftime(x, metadata):
     if xr.core.common.contains_cftime_datetimes(x):
-        return 'cftime'
+        return True
+
+    elif xr.core.common.is_np_datetime_like(x.dtype):
+        return False
+
     else:
-        return 'np_datetime'
+
+        dummy = xr.coding.times.decode_cf_datetime(
+            x[:2], units=metadata['units'], calendar=metadata['calendar']
+        )
+        if xr.core.common.is_np_datetime_like(np.array(dummy).dtype):
+            return False
+        else:
+            return True

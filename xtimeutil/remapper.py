@@ -10,9 +10,7 @@ from .axis import Axis, _get_time_bounds_dims
 
 
 class Remapper:
-    def __init__(
-        self, ds, freq, time_coord_name='time', closed=None, label=None, base=0, loffset=None
-    ):
+    def __init__(self, ds, freq, time_coord_name='time', binding='middle'):
         """
         Create a new Remapper object that facilitates conversion between two time axis.
 
@@ -27,58 +25,64 @@ class Remapper:
             <https://xarray.pydata.org/en/stable/generated/xarray.cftime_range.html>`_.
         time_coord_name : str, optional
             Name of the time coordinate, by default 'time'
-        closed : {None, 'left', 'right'} , optional
-            Make the interval closed with respect to the given frequency to the
-            'left', 'right', or both sided (None, the default)
-        label : {None, 'left', 'right'}, optional
-            Interval boundary to use for labeling.
-        base : int, optional
-             The "origin" of the adjusted Periods, by default 0
-        loffset : str, DateOffset, timedelta object, optional
-            The dateoffset to which the Periods will be adjusted, by default None
+        binding : {'left', 'right', 'middle'}, optional
+            Defines different ways a data tick could be bound to an interval.
+
+            - `left`: means that the data tick is bound to the left/beginning of
+              the interval or the lower time bound.
+
+            - `right`: means that the data tick is bound to the right/end of the
+               interval or the upper time bound.
+
+            - `middle`: means that the data tick is bound half-way through between
+               lower time bound and upper time bound.
 
         """
         self._ds = ds
-        self._from_axis = Axis(ds, time_coord_name)
-        self.metadata = self._from_axis.metadata
+        self.binding = binding
+        self._from_axis = Axis(ds, time_coord_name, binding)
+        self.ti = self._from_axis.decoded_time_bounds.values.flatten().min()
+        self.tf = self._from_axis.decoded_time_bounds.values.flatten().max()
         self.freq = freq
-        self.decoded_time_bounds_in = self._from_axis.decoded_time_bounds
-        self.decoded_time_bounds_out = self._generate_output_time_bounds(
-            freq, closed=closed, label=label, base=base, loffset=loffset
-        )
+        self.incoming_time_bounds = self._from_axis.decoded_time_bounds
+        self.outgoing_time_bounds = self._generate_outgoing_time_bounds()
         self.weights = self._get_coverage_matrix(
-            self.decoded_time_bounds_in, self.decoded_time_bounds_out
+            self.incoming_time_bounds, self.outgoing_time_bounds
         )
 
-    def _generate_output_time_bounds(self, freq, closed=None, label=None, base=0, loffset=None):
-        tb_dim = self.metadata['time_bounds_dim']
-        lower_time_bounds = self.decoded_time_bounds_in.isel({tb_dim: 0}).data
-        upper_time_bounds = self.decoded_time_bounds_in.isel({tb_dim: 1}).data
+    def _generate_outgoing_time_bounds(self):
 
-        if self.metadata['decoded_time_object_type'] == 'cftime':
-            grouper = resample_cftime.CFTimeGrouper(freq, closed, label, base, loffset)
-            lower_time_bounds = xr.CFTimeIndex(lower_time_bounds)
-            upper_time_bounds = xr.CFTimeIndex(upper_time_bounds)
+        if xr.core.common.is_np_datetime_like(self.incoming_time_bounds.dtype):
+            # Use to_offset() function to compute offset that allows us to generate
+            # time range that includes the end of the incoming time bounds.
+            offset = pd.tseries.frequencies.to_offset(self.freq)
+            time_bounds = pd.date_range(
+                start=pd.to_datetime(self.ti), end=pd.to_datetime(self.tf) + offset, freq=self.freq
+            )
+
         else:
-            grouper = pd.Grouper(freq=freq, closed=closed, label=label, base=base, loffset=loffset)
-            lower_time_bounds = pd.DatetimeIndex(lower_time_bounds)
-            upper_time_bounds = pd.DatetimeIndex(upper_time_bounds)
+            offset = xr.coding.cftime_offsets.to_offset(self.freq)
+            time_bounds = xr.cftime_range(
+                start=self.ti,
+                end=self.tf + offset,
+                freq=self.freq,
+                calendar=self._from_axis.metadata['calendar'],
+            )
 
-        lower_time_bounds, _ = _get_index_and_items(lower_time_bounds, grouper)
-        upper_time_bounds, _ = _get_index_and_items(upper_time_bounds, grouper)
+        assert time_bounds[-1] > self.tf
+        outgoing_time_bounds = np.vstack((time_bounds[:-1], time_bounds[1:])).T
+        dims = _get_time_bounds_dims(self._from_axis.metadata)
 
-        dims = _get_time_bounds_dims(self.metadata)
-        data = np.vstack((lower_time_bounds, upper_time_bounds))
-        if self.metadata['time_bounds_dim_axis_num'] == 1:
-            data = data.T
+        if self._from_axis.metadata['time_bounds_dim_axis_num'] == 0:
+            outgoing_time_bounds = outgoing_time_bounds.T
 
-        return xr.DataArray(dims=dims, data=data,)
+        return xr.DataArray(dims=dims, data=outgoing_time_bounds)
 
-    def _get_coverage_matrix(self, decoded_time_bounds_in, decoded_time_bounds_out):
+    def _get_coverage_matrix(self, decoded_time_bounds_in, outgoing_time_bounds):
         encoded_time_bounds_in, _, _ = xr.coding.times.encode_cf_datetime(decoded_time_bounds_in)
-        encoded_time_bounds_out, _, _ = xr.coding.times.encode_cf_datetime(decoded_time_bounds_out)
+        encoded_time_bounds_out, _, _ = xr.coding.times.encode_cf_datetime(outgoing_time_bounds)
 
-        if self.metadata['time_bounds_dim_axis_num'] == 1:
+        if self._from_axis.metadata['time_bounds_dim_axis_num'] == 1:
             from_lower_bound = encoded_time_bounds_in[:, 0]
             from_upper_bound = encoded_time_bounds_in[:, 1]
             to_lower_bound = encoded_time_bounds_out[:, 0]
@@ -132,7 +136,7 @@ class Remapper:
         """
         Return the dimension number of the time axis coordinate in a DataArray.
         """
-        time_coord_name = self.metadata['time_coord_name']
+        time_coord_name = self._from_axis.metadata['time_coord_name']
         return da.get_axis_num(time_coord_name)
 
     def _prepare_input_data(self, da):
@@ -163,20 +167,25 @@ class Remapper:
         coords = OrderedDict()
         dims = []
         for dim in original_dims:
-            if dim != self.metadata['time_coord_name']:
+            if dim != self._from_axis.metadata['time_coord_name']:
                 if dim in input_data.coords:
                     coords[dim] = input_data.coords[dim]
                     dims.append(dim)
             else:
-                times = xr.DataArray(
-                    self.decoded_time_bounds_out.mean(dim=self.metadata['time_bounds_dim'])
+
+                times = self._from_axis._bindings[self.binding](
+                    self.outgoing_time_bounds,
+                    axis=self._from_axis.metadata['time_bounds_dim_axis_num'],
                 )
+                times = xr.DataArray(times)
                 coords[dim] = xr.DataArray(
-                    times, coords={self.metadata['time_coord_name']: times}, attrs=input_data.attrs
+                    times,
+                    coords={self._from_axis.metadata['time_coord_name']: times},
+                    attrs=input_data.attrs,
                 )
                 dims.append(dim)
 
-        return xr.DataArray(data.squeeze(), dims=dims, coords=coords)
+        return xr.DataArray(data, dims=dims, coords=coords)
 
     def average(self, da):
         time_axis = self._get_time_axis_dim_num(da)

@@ -1,3 +1,5 @@
+import itertools
+
 import pytest
 import scipy
 import xarray as xr
@@ -5,90 +7,67 @@ import xarray as xr
 from xtimeutil import Remapper
 from xtimeutil.testing import create_dataset
 
+freqs = (
+    '4000S',
+    '200T',
+    'H',
+    '23H',
+    'D',
+    '7D',
+    '85D',
+    'M',
+    'MS',
+    '7M',
+    'Q',
+    'QS',
+    '11Q-JUN',
+    'A',
+    '9YS',
+)
+
+# cftime config
+time_units = ('days since 1800-01-01',)
+calendars = ('standard', 'noleap', '360_day', 'all_leap', '365_day')
+decode_times = (False, True)
+inputs1 = [time_units, calendars, decode_times, (True,), freqs, ('middle', 'right', 'left')]
+
+# pandas datetime config
+inputs2 = [
+    ('hours since 1800-01-01',),
+    ('standard',),
+    (True, False),
+    (False,),
+    freqs,
+    ('middle', 'right', 'left'),
+]
+
+combs1 = [element for element in itertools.product(*inputs1)]
+combs2 = [element for element in itertools.product(*inputs2)]
+
+parameters = combs1 + combs2
+
 
 @pytest.mark.parametrize(
-    'has_time_bounds, time_units, calendar, use_cftime, decode_times, freq',
-    [
-        (True, 'days since 0001-01-01', 'noleap', True, True, 'M'),
-        (True, 'days since 0002-01-01', 'noleap', True, False, 'MS'),
-        (False, 'days since 0001-01-01', 'noleap', True, True, 'AS'),
-        (True, 'hours since 1800-01-01', 'standard', False, True, '3D'),
-        (False, 'hours since 1800-01-01', 'standard', False, True, '10H'),
-        (True, 'hours since 1800-01-01', 'standard', False, False, 'Q'),
-    ],
+    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters[:10],
 )
-def test_init_remapper(has_time_bounds, time_units, calendar, use_cftime, decode_times, freq):
+def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
-        has_time_bounds=has_time_bounds,
-        time_units=time_units,
-        calendar=calendar,
-        use_cftime=use_cftime,
-        decode_times=decode_times,
+        time_units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
 
-    remapper = Remapper(ds, freq)
-    tb_dim = remapper.metadata['time_bounds_dim']
-    res = xr.decode_cf(remapper._from_axis._ds).resample(time=freq)
-    assert res._full_index.size == remapper.decoded_time_bounds_out.isel({tb_dim: 0}).size
+    remapper = Remapper(ds, freq=freq, binding=binding)
+    assert isinstance(remapper.outgoing_time_bounds, xr.DataArray)
     assert isinstance(remapper.weights, scipy.sparse.csr.csr_matrix)
-    assert remapper.weights.shape == (res._full_index.size, ds.time.size)
 
 
 @pytest.mark.parametrize(
-    'has_time_bounds, time_units, calendar, use_cftime, decode_times, freq',
-    [
-        (True, 'days since 0001-01-01', 'noleap', True, True, 'M'),
-        (True, 'days since 0002-01-01', 'noleap', True, False, 'MS'),
-        (False, 'days since 0001-01-01', 'noleap', True, True, 'AS'),
-        (True, 'hours since 1800-01-01', 'standard', False, True, '3D'),
-        (False, 'hours since 1800-01-01', 'standard', False, True, '10H'),
-        (True, 'hours since 1800-01-01', 'standard', False, False, 'Q'),
-    ],
+    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters,
 )
-def test_init_remapper_transposed_dims(
-    has_time_bounds, time_units, calendar, use_cftime, decode_times, freq
-):
+def test_remapper_average(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
-        has_time_bounds=has_time_bounds,
-        time_units=time_units,
-        calendar=calendar,
-        use_cftime=use_cftime,
-        decode_times=decode_times,
-    )
-    ds = ds.transpose()
-
-    remapper = Remapper(ds, freq)
-    tb_dim = remapper.metadata['time_bounds_dim']
-    res = xr.decode_cf(remapper._from_axis._ds).resample(time=freq)
-    assert res._full_index.size == remapper.decoded_time_bounds_out.isel({tb_dim: 0}).size
-    assert isinstance(remapper.weights, scipy.sparse.csr.csr_matrix)
-    assert remapper.weights.shape == (res._full_index.size, ds.time.size)
-
-
-@pytest.mark.parametrize(
-    'has_time_bounds, time_units, calendar, use_cftime, decode_times, freq',
-    [
-        (True, 'days since 0001-01-01', 'noleap', True, True, 'M'),
-        (True, 'days since 0002-01-01', 'noleap', True, False, 'MS'),
-        (False, 'days since 0001-01-01', 'noleap', True, True, 'AS'),
-        (True, 'hours since 1800-01-01', 'standard', False, True, '3D'),
-        (False, 'hours since 1800-01-01', 'standard', False, True, '10H'),
-        # (True, 'hours since 1800-01-01', 'standard', False, False, 'Q'), Failing for the time being
-    ],
-)
-def test_remapper_average(has_time_bounds, time_units, calendar, use_cftime, decode_times, freq):
-    ds = create_dataset(
-        has_time_bounds=has_time_bounds,
-        time_units=time_units,
-        calendar=calendar,
-        use_cftime=use_cftime,
-        decode_times=decode_times,
+        time_units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
 
-    variable = 'var_ex'
-    remapper = Remapper(ds, freq)
-    data = remapper.average(ds[variable])
-    res = xr.decode_cf(remapper._from_axis._ds)[variable].resample(time=freq).mean()
-
+    remapper = Remapper(ds, freq=freq, binding=binding)
+    data = remapper.average(ds['var_ex'])
     assert isinstance(data, xr.DataArray)
-    assert data.dims == res.dims
