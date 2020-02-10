@@ -8,14 +8,12 @@ from xtimeutil import Remapper
 from xtimeutil.testing import create_dataset
 
 freqs = (
-    '4000S',
+    '12000S',
     '200T',
     'H',
     '23H',
     'D',
-    '7D',
     '85D',
-    'M',
     'MS',
     '7M',
     'Q',
@@ -27,7 +25,7 @@ freqs = (
 
 # cftime config
 time_units = ('days since 1800-01-01',)
-calendars = ('standard', 'noleap', '360_day', 'all_leap', '365_day')
+calendars = ('noleap', '360_day', 'all_leap')
 decode_times = (False, True)
 inputs1 = [time_units, calendars, decode_times, (True,), freqs, ('middle', 'right', 'left')]
 
@@ -48,7 +46,7 @@ parameters = combs1 + combs2
 
 
 @pytest.mark.parametrize(
-    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters[:10],
+    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters,
 )
 def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
@@ -58,10 +56,26 @@ def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, bin
     remapper = Remapper(ds, freq=freq, binding=binding)
     assert isinstance(remapper.outgoing_time_bounds, xr.DataArray)
     assert isinstance(remapper.weights, scipy.sparse.csr.csr_matrix)
+    assert isinstance(remapper.coverage, dict)
 
 
 @pytest.mark.parametrize(
-    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters,
+    'start, end, in_freq, out_freq, weights, row_idx, col_idx',
+    [
+        ('2018-01-01', '2018-01-07', 'D', '7D', [1.0] * 7, [0] * 7, list(range(7))),
+        ('2018-01-01', '2018-01-07', '7D', 'D', [1.0 / 7] * 7, list(range(7)), [0] * 7),
+    ],
+)
+def test_remapper_coverage(start, end, in_freq, out_freq, weights, row_idx, col_idx):
+    ds = create_dataset(start=start, end=end, freq=in_freq)
+    remapper = Remapper(ds, freq=out_freq)
+    assert weights == remapper.coverage['weights']
+    assert row_idx == remapper.coverage['row_idx']
+    assert col_idx == remapper.coverage['col_idx']
+
+
+@pytest.mark.parametrize(
+    'time_units, calendar, decode_times, use_cftime, freq, binding', combs1[:5] + combs2[:3],
 )
 def test_remapper_average(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(

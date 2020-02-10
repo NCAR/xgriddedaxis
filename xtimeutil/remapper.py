@@ -44,6 +44,7 @@ class Remapper:
         self.ti = self._from_axis.decoded_time_bounds.values.flatten().min()
         self.tf = self._from_axis.decoded_time_bounds.values.flatten().max()
         self.freq = freq
+        self.coverage = {}
         self.incoming_time_bounds = self._from_axis.decoded_time_bounds
         self.outgoing_time_bounds = self._generate_outgoing_time_bounds()
         self.weights = self._get_coverage_matrix(
@@ -94,7 +95,9 @@ class Remapper:
                     calendar=self._from_axis.metadata['calendar'],
                 )
 
-        msg = f'{self.tf} upper bound from the incoming time axis is not covered in the outgoing time axis which has {time_bounds[-1]} as the upper bound.'
+        msg = f"""{self.tf} upper bound from the incoming time axis is not covered in the outgoing
+        time axis which has {time_bounds[-1]} as the upper bound."""
+
         assert time_bounds[-1] > self.tf, msg
         outgoing_time_bounds = np.vstack((time_bounds[:-1], time_bounds[1:])).T
         dims = _get_time_bounds_dims(self._from_axis.metadata)
@@ -153,6 +156,10 @@ class Remapper:
                     col_idx.append(c)
                     weights.append((toUB - toLB) / fromLength)
 
+        self.coverage['weights'] = weights
+        self.coverage['col_idx'] = col_idx
+        self.coverage['row_idx'] = row_idx
+
         wgts = csr_matrix((weights, (row_idx, col_idx)), shape=(m, n)).tolil()
         mask = np.asarray(wgts.sum(axis=1)).flatten() == 0
         wgts[mask, 0] = np.nan
@@ -173,7 +180,8 @@ class Remapper:
             data = data.reshape((-1, 1))
 
         if data.shape[time_axis] != n:
-            message = f'The length ({data.shape[time_axis]}) of input time dimension does not match to that of the provided remapper ({n})'
+            message = f"""The length ({data.shape[time_axis]}) of input time dimension does not
+            match to that of the provided remapper ({n})"""
             raise ValueError(message)
 
         if time_axis != 0:
