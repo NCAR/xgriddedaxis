@@ -10,6 +10,9 @@ from .axis import Axis, _get_time_bounds_dims
 
 
 class Remapper:
+    """ An object that facilitates conversion between two time axis.
+    """
+
     def __init__(self, ds, freq, time_coord_name='time', binding='middle'):
         """
         Create a new Remapper object that facilitates conversion between two time axis.
@@ -107,8 +110,8 @@ class Remapper:
 
         return xr.DataArray(dims=dims, data=outgoing_time_bounds)
 
-    def _get_coverage_matrix(self, decoded_time_bounds_in, outgoing_time_bounds):
-        encoded_time_bounds_in, _, _ = xr.coding.times.encode_cf_datetime(decoded_time_bounds_in)
+    def _get_coverage_matrix(self, incoming_time_bounds, outgoing_time_bounds):
+        encoded_time_bounds_in, _, _ = xr.coding.times.encode_cf_datetime(incoming_time_bounds)
         encoded_time_bounds_out, _, _ = xr.coding.times.encode_cf_datetime(outgoing_time_bounds)
 
         if self._from_axis.metadata['time_bounds_dim_axis_num'] == 1:

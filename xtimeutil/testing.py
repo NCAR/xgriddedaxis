@@ -64,7 +64,7 @@ def create_dataset(
 
     else:
         num = reduce(mul, shape)
-        vals = np.linspace(times.min(), times.max(), num=num)
+        vals = np.linspace(250.0, 350.0, num=num)
         var_vals = np.sin(np.pi * vals) * np.exp(-0.1 * vals)
         data = var_vals.reshape(shape).astype('float32')
 
