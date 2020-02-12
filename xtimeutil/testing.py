@@ -16,7 +16,7 @@ def create_dataset(
     decode_times=True,
     nlats=1,
     nlons=1,
-    var_const=True,
+    var_const=None,
 ):
     """ Utility function for creating test data """
 
@@ -58,12 +58,14 @@ def create_dataset(
     lons = np.linspace(start=-180, stop=180, num=nlons, dtype='float32')
 
     shape = (times.size, lats.size, lons.size)
+    num = reduce(mul, shape)
 
-    if var_const:
+    if var_const is None:
+        data = np.arange(1, num + 1, dtype='float32').reshape(shape)
+    elif var_const:
         data = np.ones(shape=shape, dtype='float32')
 
     else:
-        num = reduce(mul, shape)
         vals = np.linspace(250.0, 350.0, num=num)
         var_vals = np.sin(np.pi * vals) * np.exp(-0.1 * vals)
         data = var_vals.reshape(shape).astype('float32')

@@ -1,5 +1,6 @@
 import itertools
 
+import numpy as np
 import pytest
 import scipy
 import xarray as xr
@@ -59,6 +60,13 @@ def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, bin
     assert isinstance(remapper.coverage, dict)
 
 
+@pytest.mark.parametrize('use_cftime', [True, False])
+def test_remapper_out_freq_warnings(use_cftime):
+    ds = create_dataset(start='2018-01-01', end='2018-08-01', freq='MS', use_cftime=use_cftime)
+    with pytest.warns(UserWarning):
+        _ = Remapper(ds, freq='A')
+
+
 @pytest.mark.parametrize(
     'start, end, in_freq, out_freq, weights, row_idx, col_idx',
     [
@@ -75,13 +83,37 @@ def test_remapper_coverage(start, end, in_freq, out_freq, weights, row_idx, col_
 
 
 @pytest.mark.parametrize(
-    'time_units, calendar, decode_times, use_cftime, freq, binding', combs1[:5] + combs2[:3],
+    'start, end, in_freq, out_freq, expected',
+    [
+        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0, np.nan]).reshape(2, 1, 1)),
+        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0, np.nan]).reshape(3, 1, 1)),
+    ],
 )
-def test_remapper_average(time_units, calendar, decode_times, use_cftime, freq, binding):
-    ds = create_dataset(
-        units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
-    )
+def test_remapper_average(start, end, in_freq, out_freq, expected):
+    ds = create_dataset(start=start, end=end, freq=in_freq)
+    remapper = Remapper(ds, freq=out_freq)
+    results = remapper.average(ds.var_ex).data
+    np.testing.assert_array_equal(expected, results)
 
-    remapper = Remapper(ds, freq=freq, binding=binding)
-    data = remapper.average(ds['var_ex'])
-    assert isinstance(data, xr.DataArray)
+
+@pytest.mark.parametrize(
+    'start, end, in_freq, out_freq, expected',
+    [
+        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0, np.nan]).reshape(1, 1, 2)),
+        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0, np.nan]).reshape(1, 1, 3)),
+    ],
+)
+def test_remapper_average_w_transposed_data(start, end, in_freq, out_freq, expected):
+    ds = create_dataset(start=start, end=end, freq=in_freq).transpose()
+    remapper = Remapper(ds, freq=out_freq)
+    results = remapper.average(ds.var_ex).data
+    np.testing.assert_array_equal(expected, results)
+
+
+def test_remapper_input_time_axis_mismatch():
+    ds = create_dataset(start='2018-01-01', end='2018-01-07', freq='D')
+    remapper = Remapper(ds, freq='7D')
+
+    ds2 = create_dataset(start='2018-01-01', end='2018-01-08', freq='D')
+    with pytest.raises(ValueError):
+        _ = remapper.average(ds2.var_ex)
