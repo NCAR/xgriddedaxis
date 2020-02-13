@@ -4,6 +4,7 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
+import sparse
 import xarray as xr
 from scipy.sparse import csr_matrix
 
@@ -132,73 +133,37 @@ class Remapper:
         """
         self._ds = ds
         self._from_axis = Axis(ds, time_coord_name, binding)
-        self.ti = self._from_axis.decoded_time_bounds.values.flatten().min()
-        self.tf = self._from_axis.decoded_time_bounds.values.flatten().max()
-        self.binding = self._from_axis.metadata['binding']
-        self.freq = _validate_freq(freq)
-        self.coverage = {}
-        self.incoming_time_bounds = self._from_axis.decoded_time_bounds
-        self.outgoing_time_bounds = self._generate_outgoing_time_bounds()
-        self.weights = self._get_coverage_matrix(
-            self.incoming_time_bounds, self.outgoing_time_bounds
+        self.info = self._construct_remapper_info(freq)
+
+    def _construct_remapper_info(self, freq):
+        freq = _validate_freq(freq)
+        binding = self._from_axis.metadata['binding']
+        ti = self._from_axis.decoded_time_bounds.values.flatten().min()
+        tf = self._from_axis.decoded_time_bounds.values.flatten().max()
+
+        incoming_time_bounds = self._from_axis.decoded_time_bounds
+        outgoing_time_bounds = _generate_outgoing_time_bounds(
+            incoming_time_bounds, freq, ti, tf, self._from_axis.metadata
         )
 
-    def _generate_outgoing_time_bounds(self):
+        wgts, col_idx, row_idx = self._get_coverage_matrix(
+            incoming_time_bounds, outgoing_time_bounds
+        )
 
-        warning_message = f'Resample frequency is greater than extent of incoming time axis. Doubling time axis interval.'
+        c = xr.Dataset()
+        c['weights'] = xr.DataArray(
+            sparse.COO.from_scipy_sparse(wgts), dims=['outgoing', 'incoming']
+        )
+        c['row_idx'] = row_idx
+        c['col_idx'] = col_idx
+        c['ti'] = ti
+        c['tf'] = tf
+        c['outgoing_time_bounds'] = outgoing_time_bounds
+        c.attrs['freq'] = freq
+        c.attrs['binding'] = binding
+        c.attrs.update(self._from_axis.metadata)
 
-        if xr.core.common.is_np_datetime_like(self.incoming_time_bounds.dtype):
-            # Use to_offset() function to compute offset that allows us to generate
-            # time range that includes the end of the incoming time bounds.
-            offset = pd.tseries.frequencies.to_offset(self.freq)
-
-            time_bounds = pd.date_range(
-                start=pd.to_datetime(self.ti), end=pd.to_datetime(self.tf), freq=self.freq
-            )
-
-            if (len(time_bounds) == 1) or (time_bounds[-1] < self.tf):
-                # this should be rare
-                if len(time_bounds) == 1:
-                    warnings.warn(warning_message)
-
-                time_bounds = pd.date_range(
-                    start=pd.to_datetime(self.ti),
-                    end=pd.to_datetime(self.tf) + offset,
-                    freq=self.freq,
-                )
-
-        else:
-            offset = xr.coding.cftime_offsets.to_offset(self.freq)
-            time_bounds = xr.cftime_range(
-                start=self.ti,
-                end=self.tf,
-                freq=self.freq,
-                calendar=self._from_axis.metadata['calendar'],
-            )
-
-            if (len(time_bounds) == 1) or (time_bounds[-1] < self.tf):
-                # this should be rare
-                if len(time_bounds) == 1:
-                    warnings.warn(warning_message)
-
-                time_bounds = xr.cftime_range(
-                    start=self.ti,
-                    end=self.tf + offset,
-                    freq=self.freq,
-                    calendar=self._from_axis.metadata['calendar'],
-                )
-
-        msg = f"""{self.tf} upper bound from the incoming time axis is not covered in the outgoing
-        time axis which has {time_bounds[-1]} as the upper bound."""
-
-        assert time_bounds[-1] >= self.tf, msg
-        outgoing_time_bounds = np.vstack((time_bounds[:-1], time_bounds[1:])).T
-        dims = _get_time_bounds_dims(self._from_axis.metadata)
-
-        if self._from_axis.metadata['time_bounds_dim_axis_num'] == 0:
-            outgoing_time_bounds = outgoing_time_bounds.T
-
-        return xr.DataArray(dims=dims, data=outgoing_time_bounds)
+        return c
 
     def _get_coverage_matrix(self, incoming_time_bounds, outgoing_time_bounds):
         encoded_time_bounds_in, _, _ = xr.coding.times.encode_cf_datetime(incoming_time_bounds)
@@ -225,6 +190,7 @@ class Remapper:
         for r in range(m):
             toLB = to_lower_bound[r]
             toUB = to_upper_bound[r]
+            toLength = toUB - toLB
             for c in range(n):
                 fromLB = from_lower_bound[c]
                 fromUB = from_upper_bound[c]
@@ -235,40 +201,35 @@ class Remapper:
                 elif (fromLB <= toLB) and (fromUB >= toLB) and (fromUB <= toUB):
                     row_idx.append(r)
                     col_idx.append(c)
-                    weights.append((fromUB - toLB) / fromLength)
+                    fraction_overlap = (fromUB - toLB) / fromLength
+                    weights.append(fraction_overlap * (fromLength / toLength))
                 elif (fromLB >= toLB) and (fromLB < toUB) and (fromUB >= toUB):
                     row_idx.append(r)
                     col_idx.append(c)
-                    weights.append((toUB - fromLB) / fromLength)
+                    fraction_overlap = (toUB - fromLB) / fromLength
+                    weights.append(fraction_overlap * (fromLength / toLength))
                 elif (fromLB >= toLB) and (fromUB <= toUB):
                     row_idx.append(r)
                     col_idx.append(c)
-                    weights.append(1.0)
+                    fraction_overlap = 1.0
+                    weights.append(fraction_overlap * (fromLength / toLength))
                 elif (fromLB <= toLB) and (fromUB >= toUB):
                     row_idx.append(r)
                     col_idx.append(c)
-                    weights.append((toUB - toLB) / fromLength)
-
-        self.coverage['weights'] = weights
-        self.coverage['col_idx'] = col_idx
-        self.coverage['row_idx'] = row_idx
+                    fraction_overlap = (toUB - toLB) / fromLength
+                    weights.append(fraction_overlap * (fromLength / toLength))
 
         wgts = csr_matrix((weights, (row_idx, col_idx)), shape=(m, n)).tolil()
         mask = np.asarray(wgts.sum(axis=1)).flatten() == 0
         wgts[mask, 0] = np.nan
-        return wgts.tocsr()
+        wgts = wgts.tocsr()
 
-    def _get_time_axis_dim_num(self, da):
-        """
-        Return the dimension number of the time axis coordinate in a DataArray.
-        """
-        time_coord_name = self._from_axis.metadata['time_coord_name']
-        return da.get_axis_num(time_coord_name)
+        return wgts, col_idx, row_idx
 
     def _prepare_input_data(self, da):
-        n = self.weights.shape[1]
+        n = self.info.weights.data.shape[1]
         data = da.data.copy()
-        time_axis = self._get_time_axis_dim_num(da)
+        time_axis = _get_time_axis_dim_num(self._from_axis.metadata, da)
         if data.ndim == 1:
             data = data.reshape((-1, 1))
 
@@ -300,14 +261,14 @@ class Remapper:
                     dims.append(dim)
             else:
 
-                times = self._from_axis._bindings[self.binding](
-                    self.outgoing_time_bounds,
-                    axis=self._from_axis.metadata['time_bounds_dim_axis_num'],
+                times = self._from_axis._bindings[self.info.attrs['binding']](
+                    self.info.outgoing_time_bounds,
+                    axis=self.info.attrs['time_bounds_dim_axis_num'],
                 )
                 times = xr.DataArray(times)
                 coords[dim] = xr.DataArray(
                     times,
-                    coords={self._from_axis.metadata['time_coord_name']: times},
+                    coords={self.info.attrs['time_coord_name']: times},
                     attrs=input_data.attrs,
                 )
                 dims.append(dim)
@@ -315,14 +276,66 @@ class Remapper:
         return xr.DataArray(data, dims=dims, coords=coords)
 
     def average(self, da):
-        time_axis = self._get_time_axis_dim_num(da)
+        time_axis = _get_time_axis_dim_num(self._from_axis.metadata, da)
         input_data, trailing_shape = self._prepare_input_data(da)
         nan_mask = np.isnan(input_data)
         non_nan_mask = np.ones(input_data.shape, dtype=np.int8)
         non_nan_mask[nan_mask] = 0
         input_data[nan_mask] = 0
-
-        inverse_sum_effective_weights = np.reciprocal(self.weights * non_nan_mask)
-        output_data = np.multiply(self.weights * input_data, inverse_sum_effective_weights)
+        output_data = np.dot(self.info.weights.data, input_data)
         output_data = self._prepare_output_data(da, output_data, time_axis, trailing_shape)
         return output_data
+
+
+def _generate_outgoing_time_bounds(incoming_time_bounds, freq, ti, tf, metadata):
+
+    warning_message = f'Resample frequency is greater than extent of incoming time axis. Doubling time axis interval.'
+
+    if xr.core.common.is_np_datetime_like(incoming_time_bounds.dtype):
+        # Use to_offset() function to compute offset that allows us to generate
+        # time range that includes the end of the incoming time bounds.
+        offset = pd.tseries.frequencies.to_offset(freq)
+
+        time_bounds = pd.date_range(start=pd.to_datetime(ti), end=pd.to_datetime(tf), freq=freq)
+
+        if (len(time_bounds) == 1) or (time_bounds[-1] < tf):
+            # this should be rare
+            if len(time_bounds) == 1:
+                warnings.warn(warning_message)
+
+            time_bounds = pd.date_range(
+                start=pd.to_datetime(ti), end=pd.to_datetime(tf) + offset, freq=freq,
+            )
+
+    else:
+        offset = xr.coding.cftime_offsets.to_offset(freq)
+        time_bounds = xr.cftime_range(start=ti, end=tf, freq=freq, calendar=metadata['calendar'],)
+
+        if (len(time_bounds) == 1) or (time_bounds[-1] < tf):
+            # this should be rare
+            if len(time_bounds) == 1:
+                warnings.warn(warning_message)
+
+            time_bounds = xr.cftime_range(
+                start=ti, end=tf + offset, freq=freq, calendar=metadata['calendar'],
+            )
+
+    msg = f"""{tf} upper bound from the incoming time axis is not covered in the outgoing
+    time axis which has {time_bounds[-1]} as the upper bound."""
+
+    assert time_bounds[-1] >= tf, msg
+    outgoing_time_bounds = np.vstack((time_bounds[:-1], time_bounds[1:])).T
+    dims = _get_time_bounds_dims(metadata)
+
+    if metadata['time_bounds_dim_axis_num'] == 0:
+        outgoing_time_bounds = outgoing_time_bounds.T
+
+    return xr.DataArray(dims=dims, data=outgoing_time_bounds)
+
+
+def _get_time_axis_dim_num(metadata, da):
+    """
+    Return the dimension number of the time axis coordinate in a DataArray.
+    """
+    time_coord_name = metadata['time_coord_name']
+    return da.get_axis_num(time_coord_name)

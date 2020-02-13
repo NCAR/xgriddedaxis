@@ -2,7 +2,7 @@ import itertools
 
 import numpy as np
 import pytest
-import scipy
+import sparse
 import xarray as xr
 
 from xtimeutil import Remapper
@@ -45,8 +45,18 @@ combs2 = [element for element in itertools.product(*inputs2)]
 parameters = combs1 + combs2
 
 
+def xarray_weighted_resample(ds, group):
+    wgt = ds.time_bounds.diff('d2').squeeze()
+    wgt_grouped = wgt.groupby(group)
+    wgt = wgt_grouped / wgt_grouped.sum(dim=xr.ALL_DIMS)
+    periods = len(wgt_grouped.groups)
+    np.testing.assert_almost_equal(wgt.groupby(group).sum(dim=xr.ALL_DIMS), np.ones(periods))
+    ds_resample = (ds[['var_ex']] * wgt).groupby(group).sum(dim='time')
+    return ds_resample
+
+
 @pytest.mark.parametrize(
-    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters,
+    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters[:2],
 )
 def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
@@ -54,9 +64,23 @@ def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, bin
     )
 
     remapper = Remapper(ds, freq=freq, binding=binding)
-    assert isinstance(remapper.outgoing_time_bounds, xr.DataArray)
-    assert isinstance(remapper.weights, scipy.sparse.csr.csr_matrix)
-    assert isinstance(remapper.coverage, dict)
+    assert isinstance(remapper.info, xr.Dataset)
+    assert {'outgoing_time_bounds', 'weights'}.issubset(set(remapper.info.variables))
+    assert isinstance(remapper.info.weights.data, sparse._coo.core.COO)
+    assert set(
+        [
+            'freq',
+            'binding',
+            'is_time_decoded',
+            'time_coord_name',
+            'units',
+            'calendar',
+            'time_bounds_varname',
+            'time_bounds_dim',
+            'time_bounds_dim_axis_num',
+            'use_cftime',
+        ]
+    ) == set(remapper.info.attrs.keys())
 
 
 @pytest.mark.parametrize('use_cftime', [True, False])
@@ -72,45 +96,19 @@ def test_invalid_out_freq():
 
 
 @pytest.mark.parametrize(
-    'start, end, in_freq, out_freq, weights, row_idx, col_idx',
+    'start, end, in_freq, out_freq, nlats, nlons, group',
     [
-        ('2018-01-01', '2018-01-07', 'D', '7D', [1.0] * 7, [0] * 7, list(range(7))),
-        ('2018-01-01', '2018-01-07', '7D', 'D', [1.0 / 7] * 7, list(range(7)), [0] * 7),
+        ('2018-01-01', '2020-12-31', 'MS', 'A', 2, 2, 'time.year'),
+        ('2018-01-01', '2018-01-31', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2018-12-31', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2018-01-07', '24H', 'D', 2, 2, 'time.day'),
     ],
 )
-def test_remapper_coverage(start, end, in_freq, out_freq, weights, row_idx, col_idx):
-    ds = create_dataset(start=start, end=end, freq=in_freq)
-    remapper = Remapper(ds, freq=out_freq)
-    assert weights == remapper.coverage['weights']
-    assert row_idx == remapper.coverage['row_idx']
-    assert col_idx == remapper.coverage['col_idx']
-
-
-@pytest.mark.parametrize(
-    'start, end, in_freq, out_freq, expected',
-    [
-        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0]).reshape(1, 1, 1)),
-        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0]).reshape(2, 1, 1)),
-    ],
-)
-def test_remapper_average(start, end, in_freq, out_freq, expected):
-    ds = create_dataset(start=start, end=end, freq=in_freq)
+def test_remapper_average(start, end, in_freq, out_freq, nlats, nlons, group):
+    ds = create_dataset(start=start, end=end, freq=in_freq, nlats=nlats, nlons=nlons)
     remapper = Remapper(ds, freq=out_freq)
     results = remapper.average(ds.var_ex).data
-    np.testing.assert_array_equal(expected, results)
-
-
-@pytest.mark.parametrize(
-    'start, end, in_freq, out_freq, expected',
-    [
-        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0]).reshape(1, 1, 1)),
-        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0]).reshape(1, 1, 2)),
-    ],
-)
-def test_remapper_average_w_transposed_data(start, end, in_freq, out_freq, expected):
-    ds = create_dataset(start=start, end=end, freq=in_freq).transpose()
-    remapper = Remapper(ds, freq=out_freq)
-    results = remapper.average(ds.var_ex).data
+    expected = xarray_weighted_resample(ds, group).var_ex.data
     np.testing.assert_array_equal(expected, results)
 
 
@@ -121,3 +119,23 @@ def test_remapper_input_time_axis_mismatch():
     ds2 = create_dataset(start='2018-01-01', end='2018-01-08', freq='D')
     with pytest.raises(ValueError):
         _ = remapper.average(ds2.var_ex)
+
+
+@pytest.mark.parametrize(
+    'start, end, in_freq, out_freq, nlats, nlons, group',
+    [
+        ('2018-01-01', '2020-12-31', 'MS', 'A', 2, 2, 'time.year'),
+        ('2018-01-01', '2018-01-31', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2018-12-31', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2018-01-07', '24H', 'D', 2, 2, 'time.day'),
+    ],
+)
+def test_remapper_average_w_transposed_dims(start, end, in_freq, out_freq, nlats, nlons, group):
+    ds = create_dataset(start=start, end=end, freq=in_freq, nlats=nlats, nlons=nlons)
+    ds = ds.transpose('lat', 'lon', 'd2', 'time', ...)
+    remapper = Remapper(ds, freq=out_freq)
+    results = remapper.average(ds.var_ex).data
+    expected = (
+        xarray_weighted_resample(ds, group).transpose('lat', 'lon', 'd2', 'time', ...).var_ex.data
+    )
+    np.testing.assert_array_equal(expected, results)
