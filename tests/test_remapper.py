@@ -6,6 +6,7 @@ import scipy
 import xarray as xr
 
 from xtimeutil import Remapper
+from xtimeutil.remapper import _validate_freq
 from xtimeutil.testing import create_dataset
 
 freqs = (
@@ -63,6 +64,11 @@ def test_remapper_out_freq_warnings(use_cftime):
     ds = create_dataset(start='2018-01-01', end='2018-08-01', freq='MS', use_cftime=use_cftime)
     with pytest.warns(UserWarning):
         _ = Remapper(ds, freq='A')
+
+
+def test_invalid_out_freq():
+    with pytest.raises(ValueError):
+        _validate_freq(freq='QM')
 
 
 @pytest.mark.parametrize(

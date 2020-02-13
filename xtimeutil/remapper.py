@@ -73,7 +73,8 @@ _FREQUENCIES = {
     'Q-DEC': 'QS-DEC',
 }
 
-
+# Copied from xarray
+# https://github.com/pydata/xarray/blob/52ee5df/xarray/coding/cftime_offsets.py
 _FREQUENCY_CONDITION = '|'.join(_FREQUENCIES.keys())
 _PATTERN = fr'^((?P<multiple>\d+)|())(?P<freq>({_FREQUENCY_CONDITION}))$'
 
