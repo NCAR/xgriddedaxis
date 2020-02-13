@@ -1,3 +1,4 @@
+import re
 import warnings
 from collections import OrderedDict
 
@@ -7,6 +8,91 @@ import xarray as xr
 from scipy.sparse import csr_matrix
 
 from .axis import Axis, _get_time_bounds_dims
+
+_FREQUENCIES = {
+    'A': 'AS',
+    'AS': 'AS',
+    'Y': 'YS',
+    'YS': 'YS',
+    'Q': 'QS',
+    'QS': 'QS',
+    'M': 'MS',
+    'MS': 'MS',
+    'D': 'D',
+    'H': 'H',
+    'T': 'T',
+    'min': 'min',
+    'S': 'S',
+    'AS-JAN': 'AS-JAN',
+    'AS-FEB': 'AS-FEB',
+    'AS-MAR': 'AS-MAR',
+    'AS-APR': 'AS-APR',
+    'AS-MAY': 'AS-MAY',
+    'AS-JUN': 'AS-JUN',
+    'AS-JUL': 'AS-JUL',
+    'AS-AUG': 'AS-AUG',
+    'AS-SEP': 'AS-SEP',
+    'AS-OCT': 'AS-OCT',
+    'AS-NOV': 'AS-NOV',
+    'AS-DEC': 'AS-DEC',
+    'A-JAN': 'AS-JAN',
+    'A-FEB': 'AS-FEB',
+    'A-MAR': 'AS-MAR',
+    'A-APR': 'AS-APR',
+    'A-MAY': 'AS-MAY',
+    'A-JUN': 'AS-JUN',
+    'A-JUL': 'AS-JUL',
+    'A-AUG': 'AS-AUG',
+    'A-SEP': 'AS-SEP',
+    'A-OCT': 'AS-OCT',
+    'A-NOV': 'AS-NOV',
+    'A-DEC': 'AS-DEC',
+    'QS-JAN': 'QS-JAN',
+    'QS-FEB': 'QS-FEB',
+    'QS-MAR': 'QS-MAR',
+    'QS-APR': 'QS-APR',
+    'QS-MAY': 'QS-MAY',
+    'QS-JUN': 'QS-JUN',
+    'QS-JUL': 'QS-JUL',
+    'QS-AUG': 'QS-AUG',
+    'QS-SEP': 'QS-SEP',
+    'QS-OCT': 'QS-OCT',
+    'QS-NOV': 'QS-NOV',
+    'QS-DEC': 'QS-DEC',
+    'Q-JAN': 'QS-JAN',
+    'Q-FEB': 'QS-FEB',
+    'Q-MAR': 'QS-MAR',
+    'Q-APR': 'QS-APR',
+    'Q-MAY': 'QS-MAY',
+    'Q-JUN': 'QS-JUN',
+    'Q-JUL': 'QS-JUL',
+    'Q-AUG': 'QS-AUG',
+    'Q-SEP': 'QS-SEP',
+    'Q-OCT': 'QS-OCT',
+    'Q-NOV': 'QS-NOV',
+    'Q-DEC': 'QS-DEC',
+}
+
+
+_FREQUENCY_CONDITION = '|'.join(_FREQUENCIES.keys())
+_PATTERN = fr'^((?P<multiple>\d+)|())(?P<freq>({_FREQUENCY_CONDITION}))$'
+
+
+def _validate_freq(freq):
+    try:
+        freq_data = re.match(_PATTERN, freq).groupdict()
+    except AttributeError:
+        valid_frequencies = sorted(list(set(_FREQUENCIES.keys()) - set(_FREQUENCIES.values())))
+        raise ValueError(
+            f'Invalid frequency string provided. Valid frequencies (plus their multiples) include: {valid_frequencies}'
+        )
+    freq = freq_data['freq']
+    multiples = freq_data['multiple']
+    if multiples is None:
+        multiples = 1
+    else:
+        multiples = int(multiples)
+    return f'{multiples}{_FREQUENCIES[freq]}'
 
 
 class Remapper:
@@ -46,7 +132,7 @@ class Remapper:
         self._from_axis = Axis(ds, time_coord_name, binding)
         self.ti = self._from_axis.decoded_time_bounds.values.flatten().min()
         self.tf = self._from_axis.decoded_time_bounds.values.flatten().max()
-        self.freq = freq
+        self.freq = _validate_freq(freq)
         self.coverage = {}
         self.incoming_time_bounds = self._from_axis.decoded_time_bounds
         self.outgoing_time_bounds = self._generate_outgoing_time_bounds()
@@ -62,15 +148,15 @@ class Remapper:
             # Use to_offset() function to compute offset that allows us to generate
             # time range that includes the end of the incoming time bounds.
             offset = pd.tseries.frequencies.to_offset(self.freq)
+
             time_bounds = pd.date_range(
-                start=pd.to_datetime(self.ti), end=pd.to_datetime(self.tf) + offset, freq=self.freq
+                start=pd.to_datetime(self.ti), end=pd.to_datetime(self.tf), freq=self.freq
             )
 
-            if len(time_bounds) == 1:
+            if (len(time_bounds) == 1) or (time_bounds[-1] < self.tf):
                 # this should be rare
-                warnings.warn(warning_message)
-
-                offset = 2 * offset
+                if len(time_bounds) == 1:
+                    warnings.warn(warning_message)
 
                 time_bounds = pd.date_range(
                     start=pd.to_datetime(self.ti),
@@ -82,15 +168,16 @@ class Remapper:
             offset = xr.coding.cftime_offsets.to_offset(self.freq)
             time_bounds = xr.cftime_range(
                 start=self.ti,
-                end=self.tf + offset,
+                end=self.tf,
                 freq=self.freq,
                 calendar=self._from_axis.metadata['calendar'],
             )
 
-            if len(time_bounds) == 1:
+            if (len(time_bounds) == 1) or (time_bounds[-1] < self.tf):
                 # this should be rare
-                warnings.warn(warning_message)
-                offset = 2 * offset
+                if len(time_bounds) == 1:
+                    warnings.warn(warning_message)
+
                 time_bounds = xr.cftime_range(
                     start=self.ti,
                     end=self.tf + offset,
@@ -101,7 +188,7 @@ class Remapper:
         msg = f"""{self.tf} upper bound from the incoming time axis is not covered in the outgoing
         time axis which has {time_bounds[-1]} as the upper bound."""
 
-        assert time_bounds[-1] > self.tf, msg
+        assert time_bounds[-1] >= self.tf, msg
         outgoing_time_bounds = np.vstack((time_bounds[:-1], time_bounds[1:])).T
         dims = _get_time_bounds_dims(self._from_axis.metadata)
 

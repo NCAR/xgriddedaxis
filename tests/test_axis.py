@@ -1,7 +1,6 @@
 import itertools
 
 import pytest
-import xarray as xr
 
 from xtimeutil import Axis
 from xtimeutil.testing import create_dataset
@@ -33,12 +32,10 @@ def test_init_axis(time_units, calendar, decode_times, use_cftime):
     assert axis.decoded_times.shape == ds.time.shape
 
 
-@pytest.mark.parametrize(
-    'dataset, decode_times',
-    [('rasm', False), ('rasm', True), ('air_temperature', False), ('air_temperature', True)],
-)
-def test_init_missing_bounds(dataset, decode_times):
-    ds = xr.tutorial.open_dataset(dataset, decode_times=decode_times)
+def test_init_missing_bounds():
+    ds = create_dataset()
+    ds = ds.drop_vars(['time_bounds'])
+    del ds.time.attrs['bounds']
     with pytest.raises(RuntimeError):
         _ = Axis(ds)
 

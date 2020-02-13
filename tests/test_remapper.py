@@ -15,10 +15,8 @@ freqs = (
     '23H',
     'D',
     '85D',
-    'MS',
     '7M',
     'Q',
-    'QS',
     '11Q-JUN',
     'A',
     '9YS',
@@ -26,7 +24,7 @@ freqs = (
 
 # cftime config
 time_units = ('days since 1800-01-01',)
-calendars = ('noleap', '360_day', 'all_leap')
+calendars = ('noleap',)
 decode_times = (False, True)
 inputs1 = [time_units, calendars, decode_times, (True,), freqs, ('middle', 'right', 'left')]
 
@@ -85,8 +83,8 @@ def test_remapper_coverage(start, end, in_freq, out_freq, weights, row_idx, col_
 @pytest.mark.parametrize(
     'start, end, in_freq, out_freq, expected',
     [
-        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0, np.nan]).reshape(2, 1, 1)),
-        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0, np.nan]).reshape(3, 1, 1)),
+        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0]).reshape(1, 1, 1)),
+        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0]).reshape(2, 1, 1)),
     ],
 )
 def test_remapper_average(start, end, in_freq, out_freq, expected):
@@ -99,8 +97,8 @@ def test_remapper_average(start, end, in_freq, out_freq, expected):
 @pytest.mark.parametrize(
     'start, end, in_freq, out_freq, expected',
     [
-        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0, np.nan]).reshape(1, 1, 2)),
-        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0, np.nan]).reshape(1, 1, 3)),
+        ('2018-01-01', '2018-01-07', 'D', '7D', np.array([4.0]).reshape(1, 1, 1)),
+        ('2018-01-01', '2018-01-14', 'D', '7D', np.array([4.0, 11.0]).reshape(1, 1, 2)),
     ],
 )
 def test_remapper_average_w_transposed_data(start, end, in_freq, out_freq, expected):
