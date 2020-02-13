@@ -35,67 +35,67 @@ class Axis:
         """
         _validate_time_coord(ds, time_coord_name)
         self._ds = ds
-        self.metadata = {}
+        self.attrs = {}
 
-        self.metadata['is_time_decoded'] = _is_time_decoded(ds[time_coord_name])
-        self.metadata['time_coord_name'] = time_coord_name
-        self.metadata.update(self._get_time_attrs())
-        self.metadata['use_cftime'] = _use_cftime(ds[time_coord_name], self.metadata)
-        if self.metadata['is_time_decoded']:
+        self.attrs['is_time_decoded'] = _is_time_decoded(ds[time_coord_name])
+        self.attrs['time_coord_name'] = time_coord_name
+        self.attrs.update(self._get_time_attrs())
+        self.attrs['use_cftime'] = _use_cftime(ds[time_coord_name], self.attrs)
+        if self.attrs['is_time_decoded']:
             self.encoded_times = xr.coding.times.encode_cf_datetime(
-                self._ds[self.metadata['time_coord_name']],
-                units=self.metadata['units'],
-                calendar=self.metadata['calendar'],
+                self._ds[self.attrs['time_coord_name']],
+                units=self.attrs['units'],
+                calendar=self.attrs['calendar'],
             )[0]
 
             self.encoded_time_bounds = xr.coding.times.encode_cf_datetime(
-                self._ds[self.metadata['time_bounds_varname']],
-                units=self.metadata['units'],
-                calendar=self.metadata['calendar'],
+                self._ds[self.attrs['time_bounds_varname']],
+                units=self.attrs['units'],
+                calendar=self.attrs['calendar'],
             )[0]
         else:
-            self.encoded_times = self._ds[self.metadata['time_coord_name']].copy()
-            self.encoded_time_bounds = self._ds[self.metadata['time_bounds_varname']].copy()
+            self.encoded_times = self._ds[self.attrs['time_coord_name']].copy()
+            self.encoded_time_bounds = self._ds[self.attrs['time_bounds_varname']].copy()
 
         if binding is None:
             binding = _infer_time_data_tick_binding(
                 self.encoded_time_bounds[0], self.encoded_times[0]
             )
-            self.metadata['binding'] = binding
+            self.attrs['binding'] = binding
         elif binding in Axis._bindings:
-            self.metadata['binding'] = binding
+            self.attrs['binding'] = binding
         else:
             message = f'Could not find the Time Axis binding associated to `{binding}`. '
             message += f'Possible options are: {list(Axis._bindings.keys())}'
             raise KeyError(message)
 
         self.decoded_times = xr.DataArray(
-            dims=[self.metadata['time_coord_name']],
+            dims=[self.attrs['time_coord_name']],
             data=xr.coding.times.decode_cf_datetime(
-                Axis._bindings[self.metadata['binding']](
-                    self.encoded_time_bounds, axis=self.metadata['time_bounds_dim_axis_num']
+                Axis._bindings[self.attrs['binding']](
+                    self.encoded_time_bounds, axis=self.attrs['time_bounds_dim_axis_num']
                 ),
-                self.metadata['units'],
-                self.metadata['calendar'],
-                use_cftime=self.metadata['use_cftime'],
+                self.attrs['units'],
+                self.attrs['calendar'],
+                use_cftime=self.attrs['use_cftime'],
             ),
         )
 
-        dims = _get_time_bounds_dims(self.metadata)
+        dims = _get_time_bounds_dims(self.attrs)
 
         self.decoded_time_bounds = xr.DataArray(
             dims=dims,
             data=xr.coding.times.decode_cf_datetime(
                 self.encoded_time_bounds,
-                self.metadata['units'],
-                self.metadata['calendar'],
-                use_cftime=self.metadata['use_cftime'],
+                self.attrs['units'],
+                self.attrs['calendar'],
+                use_cftime=self.attrs['use_cftime'],
             ),
         )
 
     def _get_time_attrs(self):
-        attrs = getattr(self._ds[self.metadata['time_coord_name']], 'attrs')
-        encoding = getattr(self._ds[self.metadata['time_coord_name']], 'encoding')
+        attrs = getattr(self._ds[self.attrs['time_coord_name']], 'attrs')
+        encoding = getattr(self._ds[self.attrs['time_coord_name']], 'encoding')
 
         if 'units' in attrs:
             units = attrs['units']
@@ -121,7 +121,7 @@ class Axis:
             raise RuntimeError(message)
 
         dims = set(self._ds[time_bounds_varname].dims)
-        time_coord_name = set([self.metadata['time_coord_name']])
+        time_coord_name = set([self.attrs['time_coord_name']])
         time_bounds_dim = (dims - time_coord_name).pop()
         time_bounds_dim_axis_num = self._ds[time_bounds_varname].get_axis_num(time_bounds_dim)
         return {
@@ -133,12 +133,12 @@ class Axis:
         }
 
 
-def _get_time_bounds_dims(metadata):
+def _get_time_bounds_dims(attrs):
 
-    if metadata['time_bounds_dim_axis_num'] == 1:
-        dims = [metadata['time_coord_name'], metadata['time_bounds_dim']]
+    if attrs['time_bounds_dim_axis_num'] == 1:
+        dims = [attrs['time_coord_name'], attrs['time_bounds_dim']]
     else:
-        dims = [metadata['time_bounds_dim'], metadata['time_coord_name']]
+        dims = [attrs['time_bounds_dim'], attrs['time_coord_name']]
 
     return dims
 
@@ -152,7 +152,7 @@ def _is_time_decoded(x):
     return xr.core.common._contains_datetime_like_objects(x)
 
 
-def _use_cftime(x, metadata):
+def _use_cftime(x, attrs):
     if xr.core.common.contains_cftime_datetimes(x):
         return True
 
@@ -162,7 +162,7 @@ def _use_cftime(x, metadata):
     else:
 
         dummy = xr.coding.times.decode_cf_datetime(
-            x[:2], units=metadata['units'], calendar=metadata['calendar']
+            x[:2], units=attrs['units'], calendar=attrs['calendar']
         )
         if xr.core.common.is_np_datetime_like(np.array(dummy).dtype):
             return False

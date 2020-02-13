@@ -30,7 +30,7 @@ def test_init_axis(time_units, calendar, decode_times, use_cftime):
         units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
     axis = Axis(ds)
-    assert axis.metadata['is_time_decoded'] == decode_times
+    assert axis.attrs['is_time_decoded'] == decode_times
     assert axis.decoded_times.shape == ds.time.shape
 
 
@@ -39,7 +39,7 @@ def test_init_axis_with_attrs_from_encoding():
     ds.time.encoding = ds.time.attrs
     ds.time.attrs = {}
     axis = Axis(ds)
-    assert isinstance(axis.metadata, dict)
+    assert isinstance(axis.attrs, dict)
 
 
 def test_init_missing_bounds():

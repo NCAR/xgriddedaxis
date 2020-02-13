@@ -56,7 +56,7 @@ def xarray_weighted_resample(ds, group):
 
 
 @pytest.mark.parametrize(
-    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters[:2],
+    'time_units, calendar, decode_times, use_cftime, freq, binding', parameters,
 )
 def test_init_remapper(time_units, calendar, decode_times, use_cftime, freq, binding):
     ds = create_dataset(
