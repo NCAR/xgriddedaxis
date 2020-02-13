@@ -9,7 +9,7 @@ class Axis:
 
     _bindings = {'left': np.min, 'right': np.max, 'middle': np.mean}
 
-    def __init__(self, ds, time_coord_name='time', binding='middle'):
+    def __init__(self, ds, time_coord_name='time', binding=None):
         """
         Create a new Axis object from an input dataset
 
@@ -20,7 +20,9 @@ class Axis:
         time_coord_name : str, optional
             Name for time coordinate to use, by default 'time'
         binding : {'left', 'right', 'middle'}, optional
-            Defines different ways a data tick could be bound to an interval.
+            Defines different ways time data tick could be bound to an interval.
+            If None (default), attempt at inferring the time data tick binding from the
+            input data set.
 
             - `left`: means that the data tick is bound to the left/beginning of
               the interval or the lower time bound.
@@ -34,37 +36,44 @@ class Axis:
         _validate_time_coord(ds, time_coord_name)
         self._ds = ds
         self.metadata = {}
-        if binding in Axis._bindings:
-            self.metadata['binding'] = binding
-        else:
-            message = f'Could not find the Time Axis binding associated to `{binding}`. '
-            message += f'Possible options are: {list(Axis._bindings.keys())}'
-            raise KeyError(message)
+
         self.metadata['is_time_decoded'] = _is_time_decoded(ds[time_coord_name])
         self.metadata['time_coord_name'] = time_coord_name
         self.metadata.update(self._get_time_attrs())
         self.metadata['use_cftime'] = _use_cftime(ds[time_coord_name], self.metadata)
         if self.metadata['is_time_decoded']:
-            self._time = xr.coding.times.encode_cf_datetime(
+            self.encoded_times = xr.coding.times.encode_cf_datetime(
                 self._ds[self.metadata['time_coord_name']],
                 units=self.metadata['units'],
                 calendar=self.metadata['calendar'],
             )[0]
 
-            self._time_bounds = xr.coding.times.encode_cf_datetime(
+            self.encoded_time_bounds = xr.coding.times.encode_cf_datetime(
                 self._ds[self.metadata['time_bounds_varname']],
                 units=self.metadata['units'],
                 calendar=self.metadata['calendar'],
             )[0]
         else:
-            self._time = self._ds[self.metadata['time_coord_name']].copy()
-            self._time_bounds = self._ds[self.metadata['time_bounds_varname']].copy()
+            self.encoded_times = self._ds[self.metadata['time_coord_name']].copy()
+            self.encoded_time_bounds = self._ds[self.metadata['time_bounds_varname']].copy()
+
+        if binding is None:
+            binding = _infer_time_data_tick_binding(
+                self.encoded_time_bounds[0], self.encoded_times[0]
+            )
+            self.metadata['binding'] = binding
+        elif binding in Axis._bindings:
+            self.metadata['binding'] = binding
+        else:
+            message = f'Could not find the Time Axis binding associated to `{binding}`. '
+            message += f'Possible options are: {list(Axis._bindings.keys())}'
+            raise KeyError(message)
 
         self.decoded_times = xr.DataArray(
             dims=[self.metadata['time_coord_name']],
             data=xr.coding.times.decode_cf_datetime(
                 Axis._bindings[self.metadata['binding']](
-                    self._time_bounds, axis=self.metadata['time_bounds_dim_axis_num']
+                    self.encoded_time_bounds, axis=self.metadata['time_bounds_dim_axis_num']
                 ),
                 self.metadata['units'],
                 self.metadata['calendar'],
@@ -77,7 +86,7 @@ class Axis:
         self.decoded_time_bounds = xr.DataArray(
             dims=dims,
             data=xr.coding.times.decode_cf_datetime(
-                self._time_bounds,
+                self.encoded_time_bounds,
                 self.metadata['units'],
                 self.metadata['calendar'],
                 use_cftime=self.metadata['use_cftime'],
@@ -159,3 +168,19 @@ def _use_cftime(x, metadata):
             return False
         else:
             return True
+
+
+def _infer_time_data_tick_binding(sample_time_bound, sample_time_data_tick):
+    if sample_time_data_tick == sample_time_bound[1]:
+        return 'right'
+
+    elif sample_time_data_tick == sample_time_bound[0]:
+        return 'left'
+
+    elif (
+        sample_time_bound[0] + (sample_time_bound[1] - sample_time_bound[0]) / 2.0
+    ) == sample_time_data_tick:
+        return 'middle'
+
+    else:
+        raise RuntimeError('Unable to infer time data tick binding from the input data set. ')

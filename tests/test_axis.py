@@ -1,8 +1,10 @@
 import itertools
 
+import numpy as np
 import pytest
 
 from xtimeutil import Axis
+from xtimeutil.axis import _infer_time_data_tick_binding
 from xtimeutil.testing import create_dataset
 
 # cftime config
@@ -32,6 +34,14 @@ def test_init_axis(time_units, calendar, decode_times, use_cftime):
     assert axis.decoded_times.shape == ds.time.shape
 
 
+def test_init_axis_with_attrs_from_encoding():
+    ds = create_dataset()
+    ds.time.encoding = ds.time.attrs
+    ds.time.attrs = {}
+    axis = Axis(ds)
+    assert isinstance(axis.metadata, dict)
+
+
 def test_init_missing_bounds():
     ds = create_dataset()
     ds = ds.drop_vars(['time_bounds'])
@@ -41,12 +51,31 @@ def test_init_missing_bounds():
 
 
 def test_validate_time_coord():
-    ds = create_dataset()
+    ds = create_dataset(var_const=False)
     with pytest.raises(KeyError):
         _ = Axis(ds, 'times')
 
 
 def test_invalid_binding():
-    ds = create_dataset()
+    ds = create_dataset(var_const=True)
     with pytest.raises(KeyError):
         _ = Axis(ds, 'time', 'center')
+
+
+def test_infer_time_data_tick_binding():
+    ds = create_dataset(decode_times=False)
+    sample_time_bound = ds.time_bounds[0]
+    sample_time_data_tick = ds.time[0]
+
+    assert 'middle' == _infer_time_data_tick_binding(
+        sample_time_bound.data, sample_time_data_tick.data
+    )
+    assert 'left' == _infer_time_data_tick_binding(
+        sample_time_bound.data, np.min(sample_time_bound).data
+    )
+    assert 'right' == _infer_time_data_tick_binding(
+        sample_time_bound.data, np.max(sample_time_bound).data
+    )
+
+    with pytest.raises(RuntimeError):
+        _infer_time_data_tick_binding(sample_time_bound.data, np.std(sample_time_bound).data)

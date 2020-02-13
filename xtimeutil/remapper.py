@@ -100,7 +100,7 @@ class Remapper:
     """ An object that facilitates conversion between two time axis.
     """
 
-    def __init__(self, ds, freq, time_coord_name='time', binding='middle'):
+    def __init__(self, ds, freq, time_coord_name='time', binding=None):
         """
         Create a new Remapper object that facilitates conversion between two time axis.
 
@@ -116,7 +116,9 @@ class Remapper:
         time_coord_name : str, optional
             Name of the time coordinate, by default 'time'
         binding : {'left', 'right', 'middle'}, optional
-            Defines different ways a data tick could be bound to an interval.
+            Defines different ways time data tick could be bound to an interval.
+            If None (default), attempt at inferring the time data tick binding from the
+            input data set.
 
             - `left`: means that the data tick is bound to the left/beginning of
               the interval or the lower time bound.
@@ -129,10 +131,10 @@ class Remapper:
 
         """
         self._ds = ds
-        self.binding = binding
         self._from_axis = Axis(ds, time_coord_name, binding)
         self.ti = self._from_axis.decoded_time_bounds.values.flatten().min()
         self.tf = self._from_axis.decoded_time_bounds.values.flatten().max()
+        self.binding = self._from_axis.metadata['binding']
         self.freq = _validate_freq(freq)
         self.coverage = {}
         self.incoming_time_bounds = self._from_axis.decoded_time_bounds
