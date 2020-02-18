@@ -51,7 +51,7 @@ def xarray_weighted_resample(ds, group):
     wgt = wgt_grouped / wgt_grouped.sum(dim=xr.ALL_DIMS)
     periods = len(wgt_grouped.groups)
     np.testing.assert_almost_equal(wgt.groupby(group).sum(dim=xr.ALL_DIMS), np.ones(periods))
-    ds_resample = (ds[['var_ex']] * wgt).groupby(group).sum(dim='time')
+    ds_resample = (ds[['tmin']] * wgt).groupby(group).sum(dim='time')
     return ds_resample
 
 
@@ -98,18 +98,42 @@ def test_invalid_out_freq():
 @pytest.mark.parametrize(
     'start, end, in_freq, out_freq, nlats, nlons, group',
     [
-        ('2018-01-01', '2020-12-31', 'MS', 'A', 2, 2, 'time.year'),
-        ('2018-01-01', '2018-01-31', 'D', 'M', 2, 2, 'time.month'),
-        ('2018-01-01', '2018-12-31', 'D', 'M', 2, 2, 'time.month'),
-        ('2018-01-01', '2018-01-07', '24H', 'D', 2, 2, 'time.day'),
+        ('2018-01-01', '2021-01-01', 'MS', 'A', 2, 2, 'time.year'),
+        ('2018-01-01', '2018-02-01', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2019-01-01', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2018-01-08', '24H', 'D', 2, 2, 'time.day'),
     ],
 )
 def test_remapper_average(start, end, in_freq, out_freq, nlats, nlons, group):
-    ds = create_dataset(start=start, end=end, freq=in_freq, nlats=nlats, nlons=nlons)
+    ds = create_dataset(
+        start=start, end=end, freq=in_freq, nlats=nlats, nlons=nlons, var_const=False
+    )
     remapper = Remapper(ds, freq=out_freq)
-    results = remapper.average(ds.var_ex).data
-    expected = xarray_weighted_resample(ds, group).var_ex.data
-    np.testing.assert_array_equal(expected, results)
+    results = remapper.average(ds.tmin).data
+    expected = xarray_weighted_resample(ds, group).tmin.data
+    np.testing.assert_almost_equal(expected, results, verbose=True)
+
+
+@pytest.mark.parametrize(
+    'start, end, in_freq, out_freq, nlats, nlons, group',
+    [
+        ('2018-01-01', '2021-01-01', 'MS', 'A', 2, 2, 'time.year'),
+        ('2018-01-01', '2018-02-01', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2019-01-01', 'D', 'M', 2, 2, 'time.month'),
+        ('2018-01-01', '2018-01-08', '24H', 'D', 2, 2, 'time.day'),
+    ],
+)
+def test_remapper_average_w_transposed_dims(start, end, in_freq, out_freq, nlats, nlons, group):
+    ds = create_dataset(
+        start=start, end=end, freq=in_freq, nlats=nlats, nlons=nlons, var_const=False
+    )
+    ds = ds.transpose('lat', 'lon', 'd2', 'time', ...)
+    remapper = Remapper(ds, freq=out_freq)
+    results = remapper.average(ds.tmin).data
+    expected = (
+        xarray_weighted_resample(ds, group).transpose('lat', 'lon', 'd2', 'time', ...).tmin.data
+    )
+    np.testing.assert_almost_equal(expected, results)
 
 
 def test_remapper_input_time_axis_mismatch():
@@ -118,24 +142,4 @@ def test_remapper_input_time_axis_mismatch():
 
     ds2 = create_dataset(start='2018-01-01', end='2018-01-08', freq='D')
     with pytest.raises(ValueError):
-        _ = remapper.average(ds2.var_ex)
-
-
-@pytest.mark.parametrize(
-    'start, end, in_freq, out_freq, nlats, nlons, group',
-    [
-        ('2018-01-01', '2020-12-31', 'MS', 'A', 2, 2, 'time.year'),
-        ('2018-01-01', '2018-01-31', 'D', 'M', 2, 2, 'time.month'),
-        ('2018-01-01', '2018-12-31', 'D', 'M', 2, 2, 'time.month'),
-        ('2018-01-01', '2018-01-07', '24H', 'D', 2, 2, 'time.day'),
-    ],
-)
-def test_remapper_average_w_transposed_dims(start, end, in_freq, out_freq, nlats, nlons, group):
-    ds = create_dataset(start=start, end=end, freq=in_freq, nlats=nlats, nlons=nlons)
-    ds = ds.transpose('lat', 'lon', 'd2', 'time', ...)
-    remapper = Remapper(ds, freq=out_freq)
-    results = remapper.average(ds.var_ex).data
-    expected = (
-        xarray_weighted_resample(ds, group).transpose('lat', 'lon', 'd2', 'time', ...).var_ex.data
-    )
-    np.testing.assert_array_equal(expected, results)
+        _ = remapper.average(ds2.tmin)

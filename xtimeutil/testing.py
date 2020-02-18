@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from .remapper import _validate_freq
+
+rs = np.random.RandomState(np.random.MT19937(np.random.SeedSequence(123456789)))
+
 
 def create_dataset(
     start='2018-01',
@@ -20,38 +24,46 @@ def create_dataset(
 ):
     """ Utility function for creating test data """
 
+    freq = _validate_freq(freq)
+
     if use_cftime:
-        offset = xr.coding.cftime_offsets.to_offset(freq)
         end = xr.coding.cftime_offsets.to_cftime_datetime(end, calendar=calendar)
-        dates = xr.cftime_range(start=start, end=end + offset, freq=freq, calendar=calendar)
+        dates = xr.cftime_range(start=start, end=end, freq=freq, calendar=calendar)
 
     else:
-        offset = pd.tseries.frequencies.to_offset(freq)
-        dates = pd.date_range(
-            start=pd.to_datetime(start), end=pd.to_datetime(end) + offset, freq=freq
-        )
+        dates = pd.date_range(start=pd.to_datetime(start), end=pd.to_datetime(end), freq=freq)
 
-    bnds = np.vstack((dates[:-1], dates[1:])).T
-    bnds_encoded = xr.coding.times.encode_cf_datetime(bnds, units=units, calendar=calendar)[0]
+    decoded_time_bounds = np.vstack((dates[:-1], dates[1:])).T
 
-    times = xr.DataArray(
-        bnds_encoded.mean(axis=1),
+    encoded_time_bounds = xr.coding.times.encode_cf_datetime(
+        decoded_time_bounds, units=units, calendar=calendar
+    )[0]
+
+    encoded_times = xr.DataArray(
+        encoded_time_bounds.mean(axis=1),
         dims=('time'),
         name='time',
         attrs={'units': units, 'calendar': calendar},
     )
 
+    decoded_times = xr.DataArray(
+        xr.coding.times.decode_cf_datetime(
+            encoded_times, units=units, calendar=calendar, use_cftime=use_cftime
+        ),
+        dims=['time'],
+    )
+    decoded_time_bounds = xr.DataArray(
+        decoded_time_bounds, name='time_bounds', dims=('time', 'd2'), coords={'time': decoded_times}
+    )
+
     if decode_times:
-        times = xr.coding.times.decode_cf_datetime(
-            times, units=units, calendar=calendar, use_cftime=use_cftime
-        )
-        time_bounds = xr.DataArray(
-            bnds, name='time_bounds', dims=('time', 'd2'), coords={'time': times}
-        )
+        times = decoded_times
+        time_bounds = decoded_time_bounds
 
     else:
+        times = encoded_times
         time_bounds = xr.DataArray(
-            bnds_encoded, name='time_bounds', dims=('time', 'd2'), coords={'time': times}
+            encoded_time_bounds, name='time_bounds', dims=('time', 'd2'), coords={'time': times}
         )
 
     lats = np.linspace(start=-90, stop=90, num=nlats, dtype='float32')
@@ -61,25 +73,30 @@ def create_dataset(
     num = reduce(mul, shape)
 
     if var_const is None:
-        data = np.arange(1, num + 1, dtype='float32').reshape(shape)
+        annual_cycle = np.sin(2 * np.pi * (decoded_times.dt.dayofyear.values / 365.25 - 0.28))
+        base = 10 + 15 * annual_cycle.reshape(-1, 1)
+        tmin_values = base + 3 * np.random.randn(annual_cycle.size, nlats * nlons)
+        tmax_values = base + 10 + 3 * np.random.randn(annual_cycle.size, nlats * nlons)
+        tmin_values = tmin_values.reshape(shape)
+        tmax_values = tmax_values.reshape(shape)
+
     elif var_const:
-        data = np.ones(shape=shape, dtype='float32')
+        tmin_values = np.ones(shape=shape)
+        tmax_values = np.ones(shape=shape) + 2
 
     else:
-        vals = np.linspace(250.0, 350.0, num=num)
-        var_vals = np.sin(np.pi * vals) * np.exp(-0.1 * vals)
-        data = var_vals.reshape(shape).astype('float32')
+        tmin_values = np.arange(1, num + 1).reshape(shape)
+        tmax_values = np.arange(1, num + 1).reshape(shape)
 
-    var = xr.DataArray(
-        data,
-        name='var_ex',
-        dims=['time', 'lat', 'lon'],
-        coords={'time': times, 'lat': lats, 'lon': lons},
+    ds = xr.Dataset(
+        {
+            'tmin': (('time', 'lat', 'lon'), tmin_values.astype('float32')),
+            'tmax': (('time', 'lat', 'lon'), tmax_values.astype('float32')),
+            'time_bounds': (('time', 'd2'), time_bounds),
+        },
+        {'time': times, 'lat': lats, 'lon': lons},
     )
 
-    ds = var.to_dataset()
-
-    ds = xr.merge((ds, time_bounds))
     ds.time.attrs['bounds'] = 'time_bounds'
     ds.time.attrs['units'] = units
     ds.time.attrs['calendar'] = calendar
