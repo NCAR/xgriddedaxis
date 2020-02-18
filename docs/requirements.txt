@@ -5,3 +5,4 @@ ipykernel
 sphinx_copybutton
 matplotlib
 watermark
+nc-time-axis
