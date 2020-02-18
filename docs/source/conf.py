@@ -71,6 +71,7 @@ nbsphinx_allow_errors = True
 # Disable cell timeout
 nbsphinx_timeout = -1
 
+nbsphinx_kernel_name = 'python3'
 
 # The suffix of source filenames.
 source_suffix = '.rst'
