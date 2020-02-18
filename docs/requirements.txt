@@ -3,3 +3,5 @@ sphinx_rtd_theme
 nbsphinx
 ipykernel
 sphinx_copybutton
+matplotlib
+watermark
