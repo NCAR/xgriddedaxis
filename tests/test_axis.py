@@ -3,8 +3,7 @@ import itertools
 import numpy as np
 import pytest
 
-from xtimeutil import Axis
-from xtimeutil.axis import _infer_time_data_tick_binding
+from xtimeutil.axis import _infer_time_data_tick_binding, get_time_axis_info
 from xtimeutil.testing import create_dataset
 
 # cftime config
@@ -29,17 +28,17 @@ def test_init_axis(time_units, calendar, decode_times, use_cftime):
     ds = create_dataset(
         units=time_units, calendar=calendar, use_cftime=use_cftime, decode_times=decode_times,
     )
-    axis = Axis(ds)
-    assert axis.attrs['is_time_decoded'] == decode_times
-    assert axis.decoded_times.shape == ds.time.shape
+    info = get_time_axis_info(ds)
+    assert info['is_time_decoded'] == decode_times
+    assert info['decoded_times'].shape == ds.time.shape
 
 
 def test_init_axis_with_attrs_from_encoding():
     ds = create_dataset()
     ds.time.encoding = ds.time.attrs
     ds.time.attrs = {}
-    axis = Axis(ds)
-    assert isinstance(axis.attrs, dict)
+    info = get_time_axis_info(ds)
+    assert isinstance(info, dict)
 
 
 def test_init_missing_bounds():
@@ -47,19 +46,19 @@ def test_init_missing_bounds():
     ds = ds.drop_vars(['time_bounds'])
     del ds.time.attrs['bounds']
     with pytest.raises(RuntimeError):
-        _ = Axis(ds)
+        _ = get_time_axis_info(ds)
 
 
 def test_validate_time_coord():
     ds = create_dataset(var_const=False)
     with pytest.raises(KeyError):
-        _ = Axis(ds, 'times')
+        _ = get_time_axis_info(ds, 'times')
 
 
 def test_invalid_binding():
     ds = create_dataset(var_const=True)
     with pytest.raises(KeyError):
-        _ = Axis(ds, 'time', 'center')
+        _ = get_time_axis_info(ds, 'time', 'center')
 
 
 def test_infer_time_data_tick_binding():
