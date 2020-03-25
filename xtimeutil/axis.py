@@ -55,32 +55,58 @@ def get_time_axis_info(ds, time_coord_name='time', binding=None):
         message += f'Possible options are: {list(BINDINGS.keys())}'
         raise KeyError(message)
 
+    time_bounds_dims = _get_time_bounds_dims(
+        time_attrs['time_bounds_dim_axis_num'], time_attrs['time_bounds_dim'], time_coord_name
+    )
     decoded_times, decoded_time_bounds = _get_decoded_time(
+        ds,
+        info['is_time_decoded'],
         time_coord_name,
+        time_attrs['time_bounds_varname'],
         info['binding'],
         encoded_time_bounds,
         time_attrs['time_bounds_dim_axis_num'],
-        time_attrs['time_bounds_dim'],
+        time_bounds_dims,
         time_attrs['units'],
         time_attrs['calendar'],
         info['use_cftime'],
     )
 
     info.update(time_attrs)
+
+    np_datetime_like = xr.core.common.is_np_datetime_like(decoded_time_bounds)
     info['encoded_times'], info['encoded_time_bounds'] = encoded_times, encoded_time_bounds
     info['decoded_times'], info['decoded_time_bounds'] = decoded_times, decoded_time_bounds
+    info['time_bounds_dims'] = time_bounds_dims
+    info['np_datetime_like'] = np_datetime_like
     return info
 
 
 def _get_encoded_time(ds, is_time_decoded, time_coord_name, time_bounds_varname, units, calendar):
     if is_time_decoded:
-        encoded_times = xr.coding.times.encode_cf_datetime(
+
+        times = xr.coding.times.encode_cf_datetime(
             ds[time_coord_name], units=units, calendar=calendar,
         )[0]
 
-        encoded_time_bounds = xr.coding.times.encode_cf_datetime(
+        encoded_times = xr.DataArray(
+            times,
+            coords={time_coord_name: times},
+            dims=ds[time_coord_name].dims,
+            attrs=ds[time_coord_name].attrs,
+        )
+
+        time_bounds = xr.coding.times.encode_cf_datetime(
             ds[time_bounds_varname], units=units, calendar=calendar,
         )[0]
+
+        encoded_time_bounds = xr.DataArray(
+            time_bounds,
+            coords=encoded_times.coords,
+            attrs=ds[time_bounds_varname].attrs,
+            dims=ds[time_bounds_varname].dims,
+        )
+
     else:
         encoded_times = ds[time_coord_name].copy()
         encoded_time_bounds = ds[time_bounds_varname].copy()
@@ -89,34 +115,47 @@ def _get_encoded_time(ds, is_time_decoded, time_coord_name, time_bounds_varname,
 
 
 def _get_decoded_time(
+    ds,
+    is_time_decoded,
     time_coord_name,
+    time_bounds_varname,
     binding,
     encoded_time_bounds,
     time_bounds_dim_axis_num,
-    time_bounds_dim,
+    time_bounds_dims,
     units,
     calendar,
     use_cftime,
 ):
 
-    decoded_times = xr.DataArray(
-        dims=[time_coord_name],
-        data=xr.coding.times.decode_cf_datetime(
+    if is_time_decoded:
+        print('I am here')
+
+        decoded_times = ds[time_coord_name].copy()
+        decoded_time_bounds = ds[time_bounds_varname].copy()
+
+    else:
+
+        times = xr.coding.times.decode_cf_datetime(
             BINDINGS[binding](encoded_time_bounds, axis=time_bounds_dim_axis_num),
             units,
             calendar,
             use_cftime=use_cftime,
-        ),
-    )
+        )
 
-    dims = _get_time_bounds_dims(time_bounds_dim_axis_num, time_bounds_dim, time_coord_name)
+        decoded_times = xr.DataArray(
+            times,
+            dims=[time_coord_name],
+            coords={time_coord_name: times},
+            attrs=ds[time_coord_name].attrs,
+        )
 
-    decoded_time_bounds = xr.DataArray(
-        dims=dims,
-        data=xr.coding.times.decode_cf_datetime(
+        time_bounds = xr.coding.times.decode_cf_datetime(
             encoded_time_bounds, units, calendar, use_cftime=use_cftime,
-        ),
-    )
+        )
+        decoded_time_bounds = xr.DataArray(
+            time_bounds, dims=time_bounds_dims, attrs=ds[time_bounds_varname].attrs,
+        )
 
     return decoded_times, decoded_time_bounds
 
