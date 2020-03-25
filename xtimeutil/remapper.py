@@ -167,7 +167,6 @@ class Remapper:
         times = BINDINGS[self.info['binding']](
             time_bounds, axis=self.incoming['time_bounds_dim_axis_num']
         )
-
         outgoing_encoded_times = xr.DataArray(
             times,
             attrs=attrs,
@@ -179,7 +178,6 @@ class Remapper:
             dims=outgoing_decoded_time_bounds.dims,
             coords={self.incoming['time_coord_name']: times},
         )
-
         decoded_times = xr.coding.times.decode_cf_datetime(
             times,
             units=attrs['units'],
@@ -220,7 +218,6 @@ def _get_coverage_info(
         incoming_upper_bounds = incoming_encoded_time_bounds[:, 1]
         outgoing_lower_bounds = outgoing_encoded_time_bounds[:, 0]
         outgoing_upper_bounds = outgoing_encoded_time_bounds[:, 1]
-
     else:
         incoming_lower_bounds = incoming_encoded_time_bounds[0, :]
         incoming_upper_bounds = incoming_encoded_time_bounds[1, :]
@@ -279,9 +276,7 @@ def _construct_outgoing_time_bounds(
         # Use to_offset() function to compute offset that allows us to generate
         # time range that includes the end of the incoming time bounds.
         offset = pd.tseries.frequencies.to_offset(freq)
-
         time_bounds = pd.date_range(start=pd.to_datetime(ti), end=pd.to_datetime(tf), freq=freq)
-
         if (len(time_bounds) == 1) or (time_bounds[-1] < tf):
             # this should be rare
             if len(time_bounds) == 1:
@@ -294,7 +289,6 @@ def _construct_outgoing_time_bounds(
     else:
         offset = xr.coding.cftime_offsets.to_offset(freq)
         time_bounds = xr.cftime_range(start=ti, end=tf, freq=freq, calendar=calendar,)
-
         if (len(time_bounds) == 1) or (time_bounds[-1] < tf):
             # this should be rare
             if len(time_bounds) == 1:

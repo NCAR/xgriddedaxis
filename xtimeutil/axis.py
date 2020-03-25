@@ -71,7 +71,6 @@ def get_time_axis_info(ds, time_coord_name='time', binding=None):
         time_attrs['calendar'],
         info['use_cftime'],
     )
-
     info.update(time_attrs)
 
     np_datetime_like = xr.core.common.is_np_datetime_like(decoded_time_bounds)
@@ -129,59 +128,48 @@ def _get_decoded_time(
 ):
 
     if is_time_decoded:
-        print('I am here')
-
         decoded_times = ds[time_coord_name].copy()
         decoded_time_bounds = ds[time_bounds_varname].copy()
 
     else:
-
         times = xr.coding.times.decode_cf_datetime(
             BINDINGS[binding](encoded_time_bounds, axis=time_bounds_dim_axis_num),
             units,
             calendar,
             use_cftime=use_cftime,
         )
-
         decoded_times = xr.DataArray(
             times,
             dims=[time_coord_name],
             coords={time_coord_name: times},
             attrs=ds[time_coord_name].attrs,
         )
-
         time_bounds = xr.coding.times.decode_cf_datetime(
             encoded_time_bounds, units, calendar, use_cftime=use_cftime,
         )
         decoded_time_bounds = xr.DataArray(
             time_bounds, dims=time_bounds_dims, attrs=ds[time_bounds_varname].attrs,
         )
-
     return decoded_times, decoded_time_bounds
 
 
 def _get_time_attrs(ds, time_coord_name):
     attrs = getattr(ds[time_coord_name], 'attrs')
     encoding = getattr(ds[time_coord_name], 'encoding')
-
     if 'units' in attrs:
         units = attrs['units']
     elif 'units' in encoding:
         units = encoding['units']
-
     if 'calendar' in attrs:
         calendar = attrs['calendar']
     elif 'calendar' in encoding:
         calendar = encoding['calendar']
     else:
         calendar = 'standard'
-
     if 'bounds' in attrs:
         time_bounds_varname = attrs['bounds']
-
     elif 'bounds' in encoding:
         time_bounds_varname = encoding['bounds']
-
     else:
         message = f'Unable to infer the {time_coord_name} coordinate boundary variable'
         # TODO: Tell the user how to generate/provide time bounds.
@@ -201,7 +189,6 @@ def _get_time_attrs(ds, time_coord_name):
 
 
 def _get_time_bounds_dims(time_bounds_dim_axis_num, time_bounds_dim, time_coord_name):
-
     if time_bounds_dim_axis_num == 1:
         dims = [time_coord_name, time_bounds_dim]
     else:
@@ -222,12 +209,9 @@ def _is_time_decoded(x):
 def _use_cftime(x, units, calendar):
     if xr.core.common.contains_cftime_datetimes(x):
         return True
-
     elif xr.core.common.is_np_datetime_like(x.dtype):
         return False
-
     else:
-
         dummy = xr.coding.times.decode_cf_datetime(x[:2], units=units, calendar=calendar)
         if xr.core.common.is_np_datetime_like(np.array(dummy).dtype):
             return False
@@ -236,19 +220,15 @@ def _use_cftime(x, units, calendar):
 
 
 def _infer_time_data_tick_binding(sample_time_bound, sample_time_data_tick):
-
     if np.isclose(sample_time_data_tick, sample_time_bound[1]):
         return 'right'
-
     elif np.isclose(sample_time_data_tick, sample_time_bound[0]):
         return 'left'
-
     elif np.isclose(
         sample_time_data_tick,
         sample_time_bound[0] + (sample_time_bound[1] - sample_time_bound[0]) / 2.0,
     ):
         return 'middle'
-
     else:
         message = f"""Unable to infer time data tick binding from the input data set.
                    Please specify the `binding` parameter. Accepted values: {list(BINDINGS.keys())}"""
